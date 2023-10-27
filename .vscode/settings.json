@@ -1,0 +1,14 @@
+{
+    "python.testing.pytestArgs": [
+        "tests/",
+        "-s",
+        "-vv"
+    ],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true,
+    "python.testing.autoTestDiscoverOnSaveEnabled": true,
+    "python.defaultInterpreterPath": "/Users/liuaijun/miniconda3/envs/emcorn/bin/python",
+    "python.autoComplete.extraPaths": [
+        "/Users/liuaijun/miniconda3/envs/emcorn/lib/python3.10/site-packages"
+    ],
+}
