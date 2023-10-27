@@ -1,0 +1,7 @@
+[project]
+name = "emcorn"
+dynamic = ["version"]
+description = "Em Corn ..."
+
+[tool.pytest]
+# addopts = -p no:warnings --basetemp=./.temp/pytest
