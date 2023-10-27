@@ -1,0 +1,19 @@
+#!/usr/bin/env python
+import os, sys
+sys.path.insert(0, os.getcwd())
+
+from emcorn.main import main
+
+__usage__ = '%prog [Options] APP_MODULE'
+
+def get_app(parser, opts, args):
+    if len(args) != 1:
+        parser.error('No Application Module specified.')
+    
+    try:
+        from demo.app import app
+        return app
+    except:
+        parser.error('Failed to import application module')
+
+main(__usage__, get_app)
