@@ -1,0 +1,93 @@
+import os
+import select
+import signal
+import tempfile
+import threading
+
+from emcorn import http
+from emcorn.logging import log
+from emcorn.util import import_app
+
+
+class SubWorker(threading.Thread):
+    def __init__(self, worker, target, args, kwargs):
+        super().__init__(target=target, args=args, kwargs=kwargs)
+        self.worker = worker
+        self.worker._threads.append(self)
+
+    def run(self):
+        try:
+            if self._target is not None:
+                self._target(*self._args, **self._kwargs)
+        finally:
+            del self._target, self._args, self._kwargs
+            self.worker._threads.remove(self)
+            if len(self.worker._threads) < self.worker._max_threads:
+                self.worker._event.set()
+
+class Worker(object):
+    signals = map(
+        lambda x: getattr(signal, 'SIG%s' % x),
+        "WINCH CHLD QUIT INT TERM USR1 USR2 HUP TTIN TTOU".split()
+    )
+
+    def __init__(self, idx, ppid, sock, modname):
+        self.id = idx
+        self.ppid = ppid
+        self.pid = '-'
+        self.alive = True
+
+        self.sock = sock
+        self.address = sock.getsockname()
+        self.app = import_app(modname)
+        self.tmp = tempfile.TemporaryFile(mode='w')
+        
+        self._threads = []
+        self._max_threads = 5
+        self._event = threading.Event()
+    
+    def init_signal(self):
+        map(lambda s: signal.signal(s, signal.SIG_DFL), self.signals)
+    
+    def run(self):
+        self.pid = os.getpid()
+        self.init_signal()
+        try:
+            while self.alive:
+                while True:
+                    ret = select.select([self.sock], [], [], 2.0)
+                    if ret[0]:
+                        break
+                conn, addr = self.sock.accept()
+                log.info('Client connected: %s: %s' % addr)
+                while len(self._threads) >= self._max_threads:
+                    self._event.wait(0.5)
+                conn.setblocking(True)
+                _t = SubWorker(self, self.handle, args=(conn, addr), kwargs={})
+                _t.start()
+                # end while True
+            # end while self.alive
+        except KeyboardInterrupt:
+            self.alive = False
+    
+    def handle(self, conn, client):
+        loop = True
+        try:
+            while loop:
+                req = http.HttpRequest(conn, client, self.address)
+                result = self.app(req.read(), req.start_response)
+                res = http.HttpResponse(req, result)
+                res.send()
+                if req.should_close():
+                    req.close()
+                    loop = False
+        finally:
+            if loop:
+                conn.close()
+                loop = False
+
+    def close(self):
+        self.tmp.close()
+
+    def __repr__(self) -> str:
+        return f'{self.__class__.__name__}<ppid:{self.ppid},pid:{self.pid},id:{self.id}>'

@@ -1,5 +1,3 @@
-import logging
-
-class NullHandler(logging.Handler):
-    def emmit(self, record):
-        pass
+def import_app(modname):
+    from demo.app import app
+    return app
