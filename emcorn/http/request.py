@@ -26,6 +26,7 @@ class HttpRequest(object):
 
         self._version = 11
         self.io = IOStream(self.socket)
+        self.start_response_called = False
 
     def read(self):
         self.read_headers(first_line = True)
@@ -126,8 +127,6 @@ class HttpRequest(object):
                 raise RequestError((400, "Bad chunked transfer coding (expected '\\r\\n', got %r)" % crlf))
                 return
         
-        # self.read_headers()
-        
         data.seek(0)
         return data, str(length) or ''
 
@@ -144,6 +143,7 @@ class HttpRequest(object):
         
         headers = "%s\r\n\r\n" % "\r\n".join(res_headers)
         self.io.send(headers.encode())
+        self.start_response_called = True
 
     def write(self, data):
         self.io.send(data)
