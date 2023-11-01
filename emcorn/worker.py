@@ -3,6 +3,7 @@ import os
 import select
 import socket
 import signal
+import sys
 import tempfile
 import threading
 
@@ -56,16 +57,16 @@ class Worker(object):
         self.init_signal()
         try:
             while self.alive:
-                while True:
-                    ret = select.select([self.sock], [], [], 2.0)
+                while self.alive:
+                    ret = select.select([self.sock], [], [], 1.0)
                     if ret[0]:
                         break
-                while True:
+                while self.alive:
                     try:
                         conn, addr = self.sock.accept()
                     except socket.error as err:
                         if err.errno in [errno.EAGAIN, errno.EINTR]:
-                            continue
+                            break
                         raise err
                     try:
                         conn.setblocking(True)
@@ -82,6 +83,9 @@ class Worker(object):
             # end while self.alive
         except KeyboardInterrupt:
             self.alive = False
+    
+    def quit(self):
+        self.alive = False
     
     def handle(self, conn, client):
         req = http.HttpRequest(conn, client, self.address)

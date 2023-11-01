@@ -7,6 +7,7 @@ import socket
 import sys
 import time
 
+
 from emcorn.logging import log
 from emcorn.worker import Worker
 
@@ -82,17 +83,15 @@ class Arbiter(object):
                 if sig is None:
                     self.sleep()
                     self.alive = self.alive and sig not in (signal.SIGINT, signal.SIGQUIT)
+                
+                self.reap_workers()
                 if self.alive:
-                    self.reap_workers()
                     self.manage_workers()
             except Exception as exc:
                 self.alive = False
             except KeyboardInterrupt:
                 self.alive = False
         #end while self.alive
-        
-        log.info('main loop quit, stopping workers ...')
-        self.kill_workers(signal.SIGINT)
     
     def manage_workers(self):
         if len(self.__workers.keys()) < self.worker_processes:
@@ -155,6 +154,8 @@ class Arbiter(object):
         except OSError as exc:
             if exc.errno not in [errno.EAGAIN, errno.EINTR]:
                 raise
+        except KeyboardInterrupt:
+            self.alive = False
         
 
     def notify(self):
@@ -184,7 +185,7 @@ class Arbiter(object):
                     continue
                 worker.close()
         except ChildProcessError:
-            pass
+            return
         except OSError as exc:
             if exc.errno == errno.ECHILD:
                 pass
