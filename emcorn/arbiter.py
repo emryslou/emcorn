@@ -23,7 +23,7 @@ class Arbiter(object):
 
     signals = map(
         lambda x: getattr(signal, 'SIG%s' % x),
-        "QUIT INT TERM TTIN TTOU".split()
+        "CHLD QUIT INT TERM TTIN TTOU".split()
     )
     signal_names = dict(
         (getattr(signal, name), name[3:].lower())
@@ -239,6 +239,18 @@ class Arbiter(object):
         if self.worker_processes > 0:
             self.worker_processes -= 1
     
+    def sig_handler_chld(self):
+        self.wakeup()
+    
+    def wakeup(self):
+        while self.alive:
+            try:
+                os.write(self.__pipe[1], '.')
+                return
+            except OSError as err:
+                if e[0] not in [errno.EAGAIN, errno.EINTR]:
+                    raise
+
     def reap_workers(self):
         try:
             while True:
