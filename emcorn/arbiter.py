@@ -23,7 +23,7 @@ class Arbiter(object):
 
     signals = map(
         lambda x: getattr(signal, 'SIG%s' % x),
-        "CHLD HUP QUIT INT TERM TTIN TTOU".split()
+        "CHLD HUP QUIT INT TERM TTIN TTOU USR1 USR2 WINCH".split()
     )
     signal_names = dict(
         (getattr(signal, name), name[3:].lower())
@@ -40,17 +40,18 @@ class Arbiter(object):
 
         self.alive = True
         self.pid = os.getpid()
-        self.__init_signal()
+        self.init_signal()
         self.listen()
         log.info('Booted Arbiter: %s' % self.pid)
 
-    def __init_signal(self):
+    def init_signal(self):
         if self.__pipe:
-            map(lambda p: p.close(), self.__pipe)
+            [p.close() for p in self.__pipe]
         self.__pipe = pair = os.pipe()
-        map(self.set_non_blocking, pair)
-        map(lambda p: fcntl.fcntl(p, fcntl.F_SETFD, fcntl.FD_CLOEXEC), pair)
-        map(lambda s: signal.signal(s, self.sig_handle), self.signals)
+
+        [self.set_non_blocking(p) for p in pair]
+        [fcntl.fcntl(p, fcntl.F_SETFD, fcntl.FD_CLOEXEC) for p in pair]
+        [signal.signal(s, self.sig_handle) for s in self.signals]
 
     def listen(self):
         if 'EMCORN_FD' in os.environ:
@@ -132,12 +133,14 @@ class Arbiter(object):
                     max_raise_exc_retry -= 1
             except KeyboardInterrupt:
                 self.alive = False
+            except StopIteration:
+                break
         #end while self.alive
         self.stop()
         sys.exit(0)
     
     def stop(self, graceful = True):
-        self.__listener.close()
+        self.__listener = None
         sig = signal.SIGQUIT
         if not graceful:
             sig = signal.SIGTERM
@@ -205,10 +208,7 @@ class Arbiter(object):
             
             while os.read(self.__pipe[0], 1):
                 pass
-        except select.error as exc:
-            if exc[0] not in [errno.EAGAIN, errno.EINTR]:
-                raise
-        except OSError as exc:
+        except (BlockingIOError, OSError) as exc:
             if exc.errno not in [errno.EAGAIN, errno.EINTR]:
                 raise
         except KeyboardInterrupt:
@@ -227,12 +227,13 @@ class Arbiter(object):
 
     def wakeup(self):
         try:
-            os.write(self.PIPE[1], '.')
+            os.write(self.__pipe[1], b'.')
         except IOError as exc:
             if exc.errno not in [errno.EAGAIN, errno.EINTR]:
                 raise
         
     def sig_handle(self, sig, frame):
+        log.info(f'info sig handle {sig} {frame}')
         if len(self.__sig_queue) < 5:
             self.__sig_queue.append(sig)
         else:
@@ -241,15 +242,17 @@ class Arbiter(object):
         self.wakeup()
     
     def sig_handler_quit(self):
-        raise StopIteration
+        raise StopIteration()
     
     def sig_handler_int(self):
+        self.alive = False
         self.stop(False)
-        raise StopIteration
+        raise StopIteration()
     
     def sig_handler_term(self):
+        self.alive = False
         self.stop(False)
-        raise StopIteration
+        raise StopIteration()
     
     def sig_handler_ttin(self):
         self.worker_processes += 1
@@ -264,14 +267,27 @@ class Arbiter(object):
     def sig_handler_hup(self):
         self.reexec()
         raise StopIteration()
+    
+    def sig_handler_usr1(self):
+        self.kill_workers(signal.SIGUSR1)
+    
+    def sig_handler_usr2(self):
+        self.reexec()
+    
+    def sig_handler_winch(self):
+        if os.getppid() == 1 or os.getpgrp() != os.getpid():
+            log.info('graceful stop of workers')
+            self.stop()
+        else:
+            log.info('SIGWINCH ignored. not daemonized')
+    
 
     def reexec(self):
         self.reexec_pid = os.fork()
-        if self.reexec_pid != 0:
+        if self.reexec_pid == 0:
             os.environ['EMCORN_FD'] = str(self.__listener.fileno())
             self.__listener.setblocking(True)
-            print('hup -----')
-            apply(os.execlp, (sys.argv[0],) + tuple(sys.argv))
+            os.execlp(*(sys.argv[0],) + tuple(sys.argv))
 
     def reap_workers(self):
         try:

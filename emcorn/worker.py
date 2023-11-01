@@ -16,7 +16,7 @@ from emcorn.util import import_app
 class Worker(object):
     signals = map(
         lambda x: getattr(signal, 'SIG%s' % x),
-        "HUP QUIT INT TERM TTIN TTOU".split()
+        "HUP QUIT INT TERM TTIN TTOU USR1 USR2".split()
     )
 
     def __init__(self, idx, ppid, sock, app):
@@ -31,11 +31,14 @@ class Worker(object):
         self.tmp = tempfile.TemporaryFile('w+t')
     
     def init_signal(self):
-        map(lambda s: signal.signal(s, signal.SIG_DFL), self.signals)
+        [ signal.signal(s, signal.SIG_DFL) for s in self.signals]
+        
         signal.signal(signal.SIGQUIT, self.sig_handle_quit)
         signal.signal(signal.SIGHUP, self.sig_handle_quit)
         signal.signal(signal.SIGTERM, self.sig_handle_exit)
         signal.signal(signal.SIGINT, self.sig_handle_exit)
+        signal.signal(signal.SIGUSR1, self.sig_handle_quit)
+        signal.signal(signal.SIGUSR2, self.sig_handle_quit)
     
     def run(self):
         self.pid = os.getpid()
