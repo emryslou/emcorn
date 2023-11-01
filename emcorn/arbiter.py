@@ -103,7 +103,6 @@ class Arbiter(object):
                     self.manage_workers()
             except Exception as exc:
                 import traceback
-                log.error(f'except: {exc}')
                 traceback.print_exc(file=sys.stdout)
                 if max_raise_exc_retry < 0:
                     self.alive = False
@@ -158,11 +157,11 @@ class Arbiter(object):
             sys.exit(0)
         except Exception as exc:
             import traceback
-            log.warn(f'exception in worker process {exc}')
-            traceback.print_stack(exc)
+            log.error(f'exception in worker process {exc}')
+            traceback.print_exc(file=sys.stderr)
             sys.exit(-1)
         finally:
-            log.debug('done')
+            log.debug('worker exit ....')
 
     def kill_worker(self, pid, sig):
         worker = self.__workers.get(pid, None)

@@ -3,6 +3,7 @@ import sys
 from urllib.parse import unquote
 
 import emcorn
+from emcorn.http.iostream import IOStream
 from .errors import RequestError
 logger = emcorn.logging.log
 
@@ -24,15 +25,10 @@ class HttpRequest(object):
         self.response_headers = {}
 
         self._version = 11
-        self.fp = sock.makefile('rw', self.CHUNK_SIZE)
+        self.io = IOStream(self.socket)
 
     def read(self):
-        try:
-            self.first_line(self.fp.readline())
-        except RequestError:
-            return {}
-
-        self.read_headers()
+        self.read_headers(first_line = True)
 
         if '?' in self.path:
             path_info, query = self.path.split('?', 1)
@@ -76,19 +72,19 @@ class HttpRequest(object):
                 environ[key] = value
         return environ
 
-    def read_headers(self):
+    def read_headers(self, first_line = False):
+        headers_body = self.io.read_until('\r\n\r\n')
+        lines = headers_body.split('\r\n')
+        if first_line:
+            self.first_line(lines.pop(0))
         hname = ''
-        while True:
-            line = self.fp.readline()
-            if line in ('\r\n', '\n', ''):
-                break
-            
+        for line in lines:
             if line == '\t':
                 self.headers[hname] += line.strip()
             else:
                 try:
                     hname = self.parse_header(line)
-                except ValueError:
+                except:
                     pass
 
     def body_length(self):
@@ -117,20 +113,20 @@ class HttpRequest(object):
         length = 0
         data = io.StringIO()
         while True:
-            line = self.fp.readline().strip().split(';', 1)
+            line = self.io.read_until('\n').strip().split(';', 1)
             chunk_size = int(line.pop(0), 16)
             if chunk_size <= 0:
                 break
             length += chunk_size
 
-            data.write(self.fp.read(chunk_size))
+            data.write(self.io.recv(chunk_size))
             
-            crlf = self.fp.read(2)
+            crlf = self.io.read(2)
             if crlf != '\r\n':
                 raise RequestError((400, "Bad chunked transfer coding (expected '\\r\\n', got %r)" % crlf))
                 return
         
-        self.read_headers()
+        # self.read_headers()
         
         data.seek(0)
         return data, str(length) or ''
@@ -146,19 +142,19 @@ class HttpRequest(object):
             res_headers.append('%s: %s' % (name, value))
             self.response_headers[name.lower()] = value
         
-        self.fp.write("%s\r\n\r\n" % "\r\n".join(res_headers))
+        headers = "%s\r\n\r\n" % "\r\n".join(res_headers)
+        self.io.send(headers.encode())
 
     def write(self, data):
-        self.fp.write(data)
+        self.io.send(data)
     
     def close(self):
-        self.fp.close()
         if self.should_close():
             self.socket.close()
 
     def first_line(self, line):
         if not line:
-            raise RequestError(400, '')
+            raise RequestError(400, 'Bad Request')
         
         method, path, version = line.split(' ')
         self.version = version.strip()
@@ -176,53 +172,51 @@ class HttpRequest(object):
 
 
 class FileInput(object):
+    stream_size = 4096
+
     def __init__(self, request):
         self.length = request.body_length()
-        self.fp = request.fp
-        self.eof = False
+        self.io = request.io
+        self._rbuf = ''
 
     def close(self):
         self.eof = False
     
     def read(self, amt=None):
-        if self.fp is None or self.eof:
-            return ''
-        
-        if amt is None:
-            s = self._safe_read(self.length)
-            self.close()
-            return s
-        
-        if amt > self.length:
-            amt = self.length
-        
-        s = self.fp.read(amt)
-        self.length -= len(s)
-        if not self.length:
-            self.close()
-        
-        return s
+        if self._rbuf and not amt is None:
+            L = len(self._rbuf)
+            if amt > L:
+                amt -= L
+            else:
+                s = self._rbuf[:amt]
+                self._rbuf = self._rbuf[amt:]
+                return s
+            
+            data = self.io.recv(amt)
+            s = self._rbuf + data
+            self._rbuf = ''
 
-    def readline(self, size=None):
-        if self.fp is None or self.eof:
-            return ''
-        
-        if size is not None:
-            data = self.fp.read(size)
+            return s
+
+    def readline(self, amt = -1):
+        i = self._rbuf.find('\n')
+        while i < 0 and not(0 < amt <= len(self._rbuf)):
+            new = self.io.recv(self.stream_size)
+            if not new:
+                break
+            i = new.find('\n')
+            if i > 0:
+                i += len(self._rbuf)
+            self._rbuf = self._rbuf + new
+        if i < 0:
+            i = len(self._rbuf)
         else:
-            res = []
-            while True:
-                data = self.fp.read(256)
-                res.append(data)
-                if len(data) < 256 or data[-1:] == '\n':
-                    data = ''.join(res)
-                    break
-            #end while True
+            i += 1
         
-        self.length -= len(data)
-        if not self.length:
-            self.close()
+        if 0 < amt <= len(self._rbuf):
+            i = amt
         
+        data, self._rbuf = self._rbuf[:i], self._rbuf[i:]
         return data
 
     def readlines(self, sizehint=0):
@@ -239,23 +233,13 @@ class FileInput(object):
                 break
         
         return lines
-
-    def _safe_read(self, amt):
-        s = []
-        while amt > 0:
-            chunk = self.fp.read(amt)
-            if not chunk:
-                raise RequestError((500, 'Incomplete read %s' % s))
-            
-            s.append(chunk)
-            amt -= len(chunk)
-        
-        return ''.join(s)
     
     def __iter__(self):
         return self
     
     def next(self):
-        if self.eof:
+        r = self.readline()
+        if not r:
             raise StopIteration()
-        return self.readline()
+        
+        return r

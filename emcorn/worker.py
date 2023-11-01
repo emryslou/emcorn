@@ -41,23 +41,25 @@ class Worker(object):
             spinner = 0
             while self.alive:
                 while self.alive:
-                    ret = select.select([self.sock], [], [], 10.0)
+                    ret = select.select([self.sock], [], [], 2.0)
                     if ret[0]:
                         break
                 while self.alive:
                     try:
+                        log.info('wait request')
                         conn, addr = self.sock.accept()
                     except socket.error as err:
-                        if err.errno in [errno.EAGAIN, errno.EINTR]:
-                            break
-                        raise err
+                        if err.errno != errno.EINTR:
+                            raise err
                     try:
                         conn.setblocking(True)
                         self.handle(conn, addr)
                     finally:
-                        conn.close()
+                        # conn.close()
+                        pass
                     spinner = (spinner + 1) % 2
                     os.fchmod(self.tmp.fileno(), spinner)
+                    log.info('........')
                 # end while True
             # end while self.alive
         except KeyboardInterrupt:

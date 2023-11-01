@@ -4,12 +4,12 @@ class HttpResponse(object):
         self.req = req
         self.data = data
         self.headers = self.req.response_headers or {}
-        self.fp = req.fp
+        self.io = req.io
     
     def write(self, data):
         if isinstance(data, bytes):
             data = data.decode()
-        self.fp.write(data)
+        self.io.send(data)
     
     def send(self):
         if not self.data:
@@ -17,5 +17,3 @@ class HttpResponse(object):
         
         for chunk in self.data:
             self.write(chunk)
-        
-        self.fp.flush()
