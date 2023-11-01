@@ -2,6 +2,7 @@ import optparse as op
 
 from emcorn.arbiter import Arbiter
 from emcorn.logging import log
+from emcorn.util import import_app
 
 def options():
     return [
@@ -14,8 +15,9 @@ def options():
 def main(usage):
     parser = op.OptionParser(usage=usage, option_list=options())
     opts, args = parser.parse_args()
-    
-    arbiter = Arbiter((opts.host, opts.port), opts.workers, '')
+    app = import_app(args[0])
+
+    arbiter = Arbiter((opts.host, opts.port), opts.workers, app)
     log.info('Emcorn starting ...')
     log.info(f'listening: {opts.host}:{opts.port}')
     log.info(f'worker count:{opts.workers}')

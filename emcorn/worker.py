@@ -19,7 +19,7 @@ class Worker(object):
         "QUIT INT TERM TTIN TTOU".split()
     )
 
-    def __init__(self, idx, ppid, sock, modname):
+    def __init__(self, idx, ppid, sock, app):
         self.id = idx
         self.ppid = ppid
         self.pid = '-'
@@ -27,7 +27,7 @@ class Worker(object):
 
         self.sock = sock
         self.address = sock.getsockname()
-        self.app = import_app(modname)
+        self.app = app
         self.tmp = tempfile.TemporaryFile('w+t')
     
     def init_signal(self):
