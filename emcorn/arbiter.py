@@ -36,6 +36,7 @@ class Arbiter(object):
         self.address = address
         self.app= app
         self.timeout = 5
+        self.reexec_pid = 0
 
         self.alive = True
         self.pid = os.getpid()
@@ -52,6 +53,18 @@ class Arbiter(object):
         map(lambda s: signal.signal(s, self.sig_handle), self.signals)
 
     def listen(self):
+        if 'EMCORN_FD' in os.environ:
+            fd = int(os.environ['EMCORN_FD'])
+            del os.environ['EMCORN_FD']
+            try:
+                self.__listener = self.init_socket(fd)
+                return
+            except socket.error as err:
+                if err.errno == errno.EADDRINUSE:
+                    log.error('Connection in use : %s' % str(self.address))
+                else:
+                    raise
+
         for i in range(5):
             try:
                 self.__listener = self.init_socket()
@@ -64,9 +77,19 @@ class Arbiter(object):
                 
                 time.sleep(1)
     
-    def init_socket(self):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        
+    def init_socket(self, fd = None):
+        if fd is None:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.socket_opt(sock)
+            sock.bind(self.address)
+            sock.listen(2048)
+        else:
+            sock = socket.fromfd(fd, socket.AF_INET, socket.SOCK_STREAM)
+            self.socket_opt(sock)
+
+        return sock
+    
+    def socket_opt(self, sock):
         sock.setblocking(False)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
@@ -74,12 +97,7 @@ class Arbiter(object):
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_CORK, 1)
         elif hasattr(socket, 'TCP_NOPUSG'):
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NOPUSG, 1)
-        
-        sock.bind(self.address)
-        
-        sock.listen(2048)
 
-        return sock
 
     def run(self):
         self.manage_workers()
@@ -116,6 +134,7 @@ class Arbiter(object):
                 self.alive = False
         #end while self.alive
         self.stop()
+        sys.exit(0)
     
     def stop(self, graceful = True):
         self.__listener.close()
@@ -206,11 +225,11 @@ class Arbiter(object):
                 continue
             self.kill_worker(pid, signal.SIGKILL)
 
-    def notify(self):
+    def wakeup(self):
         try:
             os.write(self.PIPE[1], '.')
         except IOError as exc:
-            if e.errno not in [errno.EAGAIN, errno.EINTR]:
+            if exc.errno not in [errno.EAGAIN, errno.EINTR]:
                 raise
         
     def sig_handle(self, sig, frame):
@@ -219,7 +238,7 @@ class Arbiter(object):
         else:
             log.warn('warnning: ignore rapid singaling: %s' % sig)
         
-        self.notify()
+        self.wakeup()
     
     def sig_handler_quit(self):
         raise StopIteration
@@ -243,16 +262,16 @@ class Arbiter(object):
         self.wakeup()
     
     def sig_handler_hup(self):
-        self.sig_handler_quit()
-    
-    def wakeup(self):
-        while self.alive:
-            try:
-                os.write(self.__pipe[1], '.')
-                return
-            except OSError as err:
-                if e[0] not in [errno.EAGAIN, errno.EINTR]:
-                    raise
+        self.reexec()
+        raise StopIteration()
+
+    def reexec(self):
+        self.reexec_pid = os.fork()
+        if self.reexec_pid != 0:
+            os.environ['EMCORN_FD'] = str(self.__listener.fileno())
+            self.__listener.setblocking(True)
+            print('hup -----')
+            apply(os.execlp, (sys.argv[0],) + tuple(sys.argv))
 
     def reap_workers(self):
         try:
@@ -260,11 +279,14 @@ class Arbiter(object):
                 wpid, status = os.waitpid(-1, os.WNOHANG)
                 if not wpid:
                     break
-                log.info(f'reap_workers {wpid} {status}')
-                worker = self.__workers.pop(wpid)
-                if not worker:
-                    continue
-                worker.close()
+                if self.reexec_pid == wpid:
+                    self.reexec_pid = 0
+                else:
+                    worker = self.__workers.pop(wpid)
+                    if not worker:
+                        continue
+                    worker.close()
+                
         except ChildProcessError:
             return
         except OSError as exc:
