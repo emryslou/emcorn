@@ -76,29 +76,23 @@ class Arbiter(object):
 
     def run(self):
         self.manage_workers()
-        try:
-            while self.alive:
-                try:
-                    sig = self.__sig_queue.pop(0) if len(self.__sig_queue) else None
-                    if sig is None:
-                        self.sleep()
-                    if sig is signal.SIGINT:
-                        self.kill_workers(signal.SIGINT)
-                        self.alive = False
-                    elif sig is signal.SIGQUIT:
-                        self.kill_workers(signal.SIGTERM)
-                        self.alive = False
-                    
+        while self.alive:
+            try:
+                sig = self.__sig_queue.pop(0) if len(self.__sig_queue) else None
+                if sig is None:
+                    self.sleep()
+                    self.alive = self.alive and sig not in (signal.SIGINT, signal.SIGQUIT)
+                if self.alive:
                     self.reap_workers()
                     self.manage_workers()
-                except Exception as exc:
-                    self.kill_workers(signal.SIGTERM)
-                    self.alive = False
+            except Exception as exc:
+                self.alive = False
+            except KeyboardInterrupt:
+                self.alive = False
+        #end while self.alive
         
-        except KeyboardInterrupt:
-            log.info('Ctrl+C ... ')
-            self.kill_workers(signal.SIGQUIT)
-        
+        log.info('main loop quit, stopping workers ...')
+        self.kill_workers(signal.SIGINT)
     
     def manage_workers(self):
         if len(self.__workers.keys()) < self.worker_processes:
@@ -114,25 +108,27 @@ class Arbiter(object):
             if i in workers:
                 continue
 
-            worker = Worker(i, self.pid, self.__listener, self.modname)
-            pid = os.fork()
-            if pid != 0:
-                worker.pid = pid
-                self.__workers[pid] = worker
-                continue
+            pid, worker = self.fork_worker(i)
+            self.__workers[pid] = worker
 
-            try:
-                log.info(f'worker {i} {worker.pid} start ...')
-                worker.run()
-                sys.exit(0)
-            except Exception as exc:
-                import traceback
-                log.warn(f'exception in worker process {exc}')
-                traceback.print_stack(exc)
-                sys.exit(-1)
-            finally:
-                log.debug('done')
-
+            
+    def fork_worker(self, worker_idx):
+        worker = Worker(worker_idx, self.pid, self.__listener, self.modname)
+        pid = os.fork()
+        if pid != 0:
+            return pid, worker
+        
+        try:
+            log.info(f'worker {worker_idx} start ...')
+            worker.run()
+            sys.exit(0)
+        except Exception as exc:
+            import traceback
+            log.warn(f'exception in worker process {exc}')
+            traceback.print_stack(exc)
+            sys.exit(-1)
+        finally:
+            log.debug('done')
 
     def kill_worker(self, pid, sig):
         worker = self.__workers.pop(pid)
@@ -153,9 +149,6 @@ class Arbiter(object):
             
             while os.read(self.__pipe[0], 1):
                 pass
-        except KeyboardInterrupt:
-            self.running = False
-            return
         except select.error as exc:
             if exc[0] not in [errno.EAGAIN, errno.EINTR]:
                 raise

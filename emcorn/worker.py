@@ -43,7 +43,7 @@ class Worker(object):
         self.tmp = tempfile.TemporaryFile(mode='w')
         
         self._threads = []
-        self._max_threads = 5
+        self._max_threads = 3
         self._event = threading.Event()
     
     def init_signal(self):
@@ -60,11 +60,15 @@ class Worker(object):
                         break
                 conn, addr = self.sock.accept()
                 log.info('Client connected: %s: %s' % addr)
-                while len(self._threads) >= self._max_threads:
-                    self._event.wait(0.5)
-                conn.setblocking(True)
-                _t = SubWorker(self, self.handle, args=(conn, addr), kwargs={})
-                _t.start()
+                if self._max_threads > 1:
+                    while len(self._threads) >= self._max_threads:
+                        self._event.wait(0.5)
+                    conn.setblocking(True)
+                    _t = SubWorker(self, self.handle, args=(conn, addr), kwargs={})
+                    _t.start()
+                else:
+                    conn.setblocking(True)
+                    self.handle(conn, addr)
                 # end while True
             # end while self.alive
         except KeyboardInterrupt:
