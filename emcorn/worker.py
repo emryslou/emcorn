@@ -31,7 +31,7 @@ class SubWorker(threading.Thread):
 class Worker(object):
     signals = map(
         lambda x: getattr(signal, 'SIG%s' % x),
-        "WINCH CHLD QUIT INT TERM USR1 USR2 HUP TTIN TTOU".split()
+        "QUIT INT TERM TTIN TTOU".split()
     )
 
     def __init__(self, idx, ppid, sock, modname):
@@ -51,11 +51,15 @@ class Worker(object):
     
     def init_signal(self):
         map(lambda s: signal.signal(s, signal.SIG_DFL), self.signals)
+        signal.signal(signal.SIGQUIT, self.sig_handle_quit)
+        signal.signal(signal.SIGTERM, self.sig_handle_exit)
+        signal.signal(signal.SIGINT, self.sig_handle_exit)
     
     def run(self):
         self.pid = os.getpid()
         self.init_signal()
         try:
+            spinner = 0
             while self.alive:
                 while self.alive:
                     ret = select.select([self.sock], [], [], 10.0)
@@ -79,6 +83,8 @@ class Worker(object):
                             self.handle(conn, addr)
                     finally:
                         conn.close()
+                    spinner = (spinner + 1) % 2
+                    os.fchmod(self.tmp.fileno(), spinner)
                 # end while True
             # end while self.alive
         except KeyboardInterrupt:
@@ -94,6 +100,12 @@ class Worker(object):
         res.send()
         if req.should_close():
             req.close()
+
+    def sig_handle_quit(self, sig, frame):
+        self.alive = False
+    
+    def sig_handle_exit(self, sig, frame):
+        sys.exit(-1)
 
     def close(self):
         self.tmp.close()
