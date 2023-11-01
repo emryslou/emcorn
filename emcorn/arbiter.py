@@ -23,12 +23,12 @@ class Arbiter(object):
 
     signals = map(
         lambda x: getattr(signal, 'SIG%s' % x),
-        "CHLD QUIT INT TERM TTIN TTOU".split()
+        "CHLD HUP QUIT INT TERM TTIN TTOU".split()
     )
     signal_names = dict(
         (getattr(signal, name), name[3:].lower())
         for name in dir(signal)
-        if name[:3] == 'SIG'
+        if name[:3] == 'SIG' and name[3] != '_'
     )
 
     def __init__(self, address, worker_processes, app):
@@ -241,6 +241,9 @@ class Arbiter(object):
     
     def sig_handler_chld(self):
         self.wakeup()
+    
+    def sig_handler_hup(self):
+        self.sig_handler_quit()
     
     def wakeup(self):
         while self.alive:
