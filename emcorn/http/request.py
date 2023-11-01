@@ -1,4 +1,5 @@
 import io
+import re
 import sys
 from urllib.parse import unquote
 
@@ -6,6 +7,9 @@ import emcorn
 from emcorn.http.iostream import IOStream
 from .errors import RequestError
 logger = emcorn.logging.log
+
+def _normalize_name(name):
+    return '-'.join([w.lower().capitalize() for w in name.split('-')])
 
 class HttpRequest(object):
     
@@ -27,6 +31,7 @@ class HttpRequest(object):
         self._version = 11
         self.io = IOStream(self.socket)
         self.start_response_called = False
+        self._should_close = False
 
     def read(self):
         self.read_headers(first_line = True)
@@ -75,6 +80,8 @@ class HttpRequest(object):
 
     def read_headers(self, first_line = False):
         headers_body = self.io.read_until('\r\n\r\n')
+        if headers_body is None:
+            raise RequestError(400, 'Bad Request')
         lines = headers_body.split('\r\n')
         if first_line:
             self.first_line(lines.pop(0))
@@ -100,6 +107,9 @@ class HttpRequest(object):
             return None
 
     def should_close(self):
+        if self._should_close:
+            return True
+        
         if self.headers.get('CONNECTION') == 'close':
             return True
         
@@ -130,27 +140,22 @@ class HttpRequest(object):
         data.seek(0)
         return data, str(length) or ''
 
-
     def start_response(self, status, headers):
-        res_headers = []
-        self.response_status = status
+        self.response_status = int(status.split(" ")[0])
         self.response_headers = {}
 
-        res_headers.append('%s %s' % (self.version, status))
         for name, value in headers:
-            res_headers.append('%s: %s' % (name, value))
             self.response_headers[name.lower()] = value
         
-        headers = "%s\r\n\r\n" % "\r\n".join(res_headers)
-        self.io.send(headers.encode())
         self.start_response_called = True
+        # headers = "%s\r\n" % "".join(res_headers)
+        # self.io.send(headers.encode())
 
     def write(self, data):
         self.io.send(data)
     
     def close(self):
-        if self.should_close():
-            self.socket.close()
+        self.socket.close()
 
     def first_line(self, line):
         if not line:

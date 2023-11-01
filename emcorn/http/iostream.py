@@ -1,11 +1,14 @@
 import errno
 import socket
 
+from emcorn.logging import log
+
 class IOStream(object):
     chunk_size = 4096
 
     def __init__(self, sock):
         self.sock = sock
+        self.sock.setblocking(False)
         self.buf = ''
     
     def recv(self, buffer_size):
@@ -26,6 +29,7 @@ class IOStream(object):
             except socket.error as e:
                 return
 
+            log.debug(f'recv from socket {data}')
             if isinstance(data, bytes):
                 data = data.decode()
             self.buf = self.buf + data

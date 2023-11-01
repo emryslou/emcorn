@@ -70,6 +70,10 @@ class Arbiter(object):
         sock.setblocking(False)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        if hasattr(socket, 'TCP_CORK'):
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_CORK, 1)
+        elif hasattr(socket, 'TCP_NOPUSG'):
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NOPUSG, 1)
         
         sock.bind(self.address)
         

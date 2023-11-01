@@ -1,4 +1,5 @@
 import errno
+import fcntl
 import os
 import select
 import socket
@@ -9,6 +10,7 @@ import threading
 
 from emcorn import http
 from emcorn.logging import log
+from emcorn.http.request import RequestError
 from emcorn.util import import_app
 
 class Worker(object):
@@ -44,22 +46,23 @@ class Worker(object):
                     ret = select.select([self.sock], [], [], 2.0)
                     if ret[0]:
                         break
+                
                 while self.alive:
                     try:
-                        log.info('wait request')
                         conn, addr = self.sock.accept()
+                    except BlockingIOError:
+                        break
                     except socket.error as err:
                         if err.errno != errno.EINTR:
                             raise err
                     try:
-                        conn.setblocking(True)
+                        conn.setblocking(False)
                         self.handle(conn, addr)
                     finally:
-                        # conn.close()
-                        pass
+                        conn.close()
+
                     spinner = (spinner + 1) % 2
                     os.fchmod(self.tmp.fileno(), spinner)
-                    log.info('........')
                 # end while True
             # end while self.alive
         except KeyboardInterrupt:
@@ -69,17 +72,17 @@ class Worker(object):
         self.alive = False
     
     def handle(self, conn, client):
+        fcntl.fcntl(conn.fileno(), fcntl.F_SETFD, fcntl.FD_CLOEXEC)
         req = http.HttpRequest(conn, client, self.address)
-        result = self.app(req.read(), req.start_response)
-        if req.path is None:
+        try:
+            result = self.app(req.read(), req.start_response)
+            res = http.HttpResponse(req, result)
+            res.send()
+            if req.should_close():
+                req.close()
+        except Exception as exc:
             req.close()
-            return
-        
-        res = http.HttpResponse(req, result)
-        res.send()
-        log.info(f'{client}:[{req.method}]{req.path}')
-        if req.should_close():
-            req.close()
+            log.error(f'{client}:request error {exc}')
 
     def sig_handle_quit(self, sig, frame):
         self.alive = False
