@@ -6,6 +6,7 @@ import signal
 import socket
 import sys
 import time
+import threading
 
 
 from emcorn.logging import log
@@ -22,10 +23,10 @@ class Arbiter(object):
 
     signals = map(
         lambda x: getattr(signal, 'SIG%s' % x),
-        "WINCH CHLD QUIT INT TERM USR1 USR2 HUP TTIN TTOU".split()
+        "QUIT INT TERM TTIN TTOU".split()
     )
     signal_names = dict(
-        (getattr(signal, name), name)
+        (getattr(signal, name), name[3:].lower())
         for name in dir(signal)
         if name[:3] == 'SIG'
     )
@@ -34,11 +35,13 @@ class Arbiter(object):
         self.worker_processes = worker_processes
         self.address = address
         self.modname= modname
+        self.timeout = 5
 
         self.alive = True
         self.pid = os.getpid()
         self.__init_signal()
         self.listen()
+        log.info('Booted Arbiter: %s' % self.pid)
 
     def __init_signal(self):
         if self.__pipe:
@@ -60,7 +63,6 @@ class Arbiter(object):
                     log.error('Retrying in 1 second.')
                 
                 time.sleep(1)
-        self.running = False
     
     def init_socket(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -77,22 +79,55 @@ class Arbiter(object):
 
     def run(self):
         self.manage_workers()
+        max_raise_exc_retry = 10
         while self.alive:
             try:
                 sig = self.__sig_queue.pop(0) if len(self.__sig_queue) else None
                 if sig is None:
                     self.sleep()
-                    self.alive = self.alive and sig not in (signal.SIGINT, signal.SIGQUIT)
+                    continue
                 
+                if sig not in self.signal_names:
+                    log.info('Ignoring unknown signal: %s' % sig)
+                    continue
+                signame = self.signal_names.get(sig)
+                sig_handler = getattr(self, 'sig_handler_%s' % signame, None)
+                if not sig_handler:
+                    log.error('Unhandled signal: %s' % signame)
+                    continue
+                sig_handler()
+                
+                self.murder_workers()
                 self.reap_workers()
                 if self.alive:
                     self.manage_workers()
             except Exception as exc:
-                self.alive = False
+                import traceback
+                log.error(f'except: {exc}')
+                traceback.print_exc(file=sys.stdout)
+                if max_raise_exc_retry < 0:
+                    self.alive = False
+                else:
+                    max_raise_exc_retry -= 1
             except KeyboardInterrupt:
                 self.alive = False
         #end while self.alive
+        self.stop()
     
+    def stop(self, graceful = True):
+        self.__listener.close()
+        sig = signal.SIGQUIT
+        if not graceful:
+            sig = signal.SIGTERM
+        
+        limit = time.time() + self.timeout
+        while len(self.__workers) and time.time() < limit:
+            self.kill_workers(sig)
+            time.sleep(0.1)
+            self.reap_workers()
+        
+        self.kill_workers(signal.SIGKILL)
+
     def manage_workers(self):
         if len(self.__workers.keys()) < self.worker_processes:
             self.spawn_workers()
@@ -130,11 +165,11 @@ class Arbiter(object):
             log.debug('done')
 
     def kill_worker(self, pid, sig):
-        worker = self.__workers.pop(pid)
+        worker = self.__workers.get(pid, None)
         try:
             os.kill(pid, sig)
         finally:
-            worker.close()
+            if worker: worker.close()
 
     def kill_workers(self, sig):
         for pid in self.__workers.keys():
@@ -156,7 +191,17 @@ class Arbiter(object):
                 raise
         except KeyboardInterrupt:
             self.alive = False
-        
+    
+    def murder_workers(self):
+        for pid, worker in self.__workers.items():
+            try:
+                diff = time.time() - os.fstat(worker.tmp.fileno()).st_mtime
+            except:
+                diff = 0
+            log.info(f'{pid} timeout: {diff} > {self.timeout}?')
+            if diff < self.timeout:
+                continue
+            self.kill_worker(pid, signal.SIGKILL)
 
     def notify(self):
         try:
@@ -173,13 +218,31 @@ class Arbiter(object):
         
         self.notify()
     
-
+    def sig_handler_quit(self):
+        raise StopIteration
+    
+    def sig_handler_int(self):
+        self.stop(False)
+        raise StopIteration
+    
+    def sig_handler_term(self):
+        self.stop(False)
+        raise StopIteration
+    
+    def sig_handler_ttin(self):
+        self.worker_processes += 1
+    
+    def sig_handler_ttou(self):
+        if self.worker_processes > 0:
+            self.worker_processes -= 1
+    
     def reap_workers(self):
         try:
             while True:
                 wpid, status = os.waitpid(-1, os.WNOHANG)
                 if not wpid:
                     break
+                log.info(f'reap_workers {wpid} {status}')
                 worker = self.__workers.pop(wpid)
                 if not worker:
                     continue

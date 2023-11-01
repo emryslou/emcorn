@@ -7,6 +7,8 @@ class HttpResponse(object):
         self.fp = req.fp
     
     def write(self, data):
+        if isinstance(data, bytes):
+            data = data.decode()
         self.fp.write(data)
     
     def send(self):

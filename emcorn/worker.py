@@ -43,7 +43,7 @@ class Worker(object):
         self.sock = sock
         self.address = sock.getsockname()
         self.app = import_app(modname)
-        self.tmp = tempfile.TemporaryFile(mode='w')
+        self.tmp = tempfile.TemporaryFile('w+t')
         
         self._threads = []
         self._max_threads = 1
@@ -58,7 +58,7 @@ class Worker(object):
         try:
             while self.alive:
                 while self.alive:
-                    ret = select.select([self.sock], [], [], 1.0)
+                    ret = select.select([self.sock], [], [], 10.0)
                     if ret[0]:
                         break
                 while self.alive:
