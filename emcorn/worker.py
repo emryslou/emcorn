@@ -11,23 +11,6 @@ from emcorn import http
 from emcorn.logging import log
 from emcorn.util import import_app
 
-
-class SubWorker(threading.Thread):
-    def __init__(self, worker, target, args, kwargs):
-        super().__init__(target=target, args=args, kwargs=kwargs)
-        self.worker = worker
-        self.worker._threads.append(self)
-
-    def run(self):
-        try:
-            if self._target is not None:
-                self._target(*self._args, **self._kwargs)
-        finally:
-            del self._target, self._args, self._kwargs
-            self.worker._threads.remove(self)
-            if len(self.worker._threads) < self.worker._max_threads:
-                self.worker._event.set()
-
 class Worker(object):
     signals = map(
         lambda x: getattr(signal, 'SIG%s' % x),
@@ -44,10 +27,6 @@ class Worker(object):
         self.address = sock.getsockname()
         self.app = import_app(modname)
         self.tmp = tempfile.TemporaryFile('w+t')
-        
-        self._threads = []
-        self._max_threads = 1
-        self._event = threading.Event()
     
     def init_signal(self):
         map(lambda s: signal.signal(s, signal.SIG_DFL), self.signals)
@@ -74,13 +53,7 @@ class Worker(object):
                         raise err
                     try:
                         conn.setblocking(True)
-                        if self._max_threads > 1:
-                            while len(self._threads) >= self._max_threads:
-                                self._event.wait(0.5)
-                            _t = SubWorker(self, self.handle, args=(conn, addr), kwargs={})
-                            _t.start()
-                        else:
-                            self.handle(conn, addr)
+                        self.handle(conn, addr)
                     finally:
                         conn.close()
                     spinner = (spinner + 1) % 2
@@ -96,8 +69,13 @@ class Worker(object):
     def handle(self, conn, client):
         req = http.HttpRequest(conn, client, self.address)
         result = self.app(req.read(), req.start_response)
+        if req.path is None:
+            req.close()
+            return
+        
         res = http.HttpResponse(req, result)
         res.send()
+        log.info(f'{client}:[{req.method}]{req.path}')
         if req.should_close():
             req.close()
 
