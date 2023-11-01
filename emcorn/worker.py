@@ -1,5 +1,7 @@
+import errno
 import os
 import select
+import socket
 import signal
 import tempfile
 import threading
@@ -43,7 +45,7 @@ class Worker(object):
         self.tmp = tempfile.TemporaryFile(mode='w')
         
         self._threads = []
-        self._max_threads = 3
+        self._max_threads = 1
         self._event = threading.Event()
     
     def init_signal(self):
@@ -58,37 +60,36 @@ class Worker(object):
                     ret = select.select([self.sock], [], [], 2.0)
                     if ret[0]:
                         break
-                conn, addr = self.sock.accept()
-                log.info('Client connected: %s: %s' % addr)
-                if self._max_threads > 1:
-                    while len(self._threads) >= self._max_threads:
-                        self._event.wait(0.5)
-                    conn.setblocking(True)
-                    _t = SubWorker(self, self.handle, args=(conn, addr), kwargs={})
-                    _t.start()
-                else:
-                    conn.setblocking(True)
-                    self.handle(conn, addr)
+                while True:
+                    try:
+                        conn, addr = self.sock.accept()
+                    except socket.error as err:
+                        if err.errno in [errno.EAGAIN, errno.EINTR]:
+                            continue
+                        raise err
+                    try:
+                        conn.setblocking(True)
+                        if self._max_threads > 1:
+                            while len(self._threads) >= self._max_threads:
+                                self._event.wait(0.5)
+                            _t = SubWorker(self, self.handle, args=(conn, addr), kwargs={})
+                            _t.start()
+                        else:
+                            self.handle(conn, addr)
+                    finally:
+                        conn.close()
                 # end while True
             # end while self.alive
         except KeyboardInterrupt:
             self.alive = False
     
     def handle(self, conn, client):
-        loop = True
-        try:
-            while loop:
-                req = http.HttpRequest(conn, client, self.address)
-                result = self.app(req.read(), req.start_response)
-                res = http.HttpResponse(req, result)
-                res.send()
-                if req.should_close():
-                    req.close()
-                    loop = False
-        finally:
-            if loop:
-                conn.close()
-                loop = False
+        req = http.HttpRequest(conn, client, self.address)
+        result = self.app(req.read(), req.start_response)
+        res = http.HttpResponse(req, result)
+        res.send()
+        if req.should_close():
+            req.close()
 
     def close(self):
         self.tmp.close()
