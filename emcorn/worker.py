@@ -6,6 +6,7 @@ import socket
 import signal
 import sys
 import tempfile
+import time
 import threading
 
 from emcorn import http
@@ -25,11 +26,22 @@ class Worker(object):
         self.pid = '-'
         self.alive = True
 
+        fd, tmpname = tempfile.mkstemp()
+        self.tmp = os.fdopen(fd, 'r+b')
+        self.tmpname = tmpname
+        
+        self.close_on_exec(sock)
+        self.close_on_exec(fd)
+
         self.sock = sock
         self.address = sock.getsockname()
+       
         self.app = app
-        self.tmp = tempfile.TemporaryFile('w+t')
     
+    def close_on_exec(self, fd):
+        flags = fcntl.fcntl(fd, fcntl.F_GETFD) | fcntl.FD_CLOEXEC
+        fcntl.fcntl(fd, fcntl.F_SETFL, flags) # ????
+
     def init_signal(self):
         [ signal.signal(s, signal.SIG_DFL) for s in self.signals]
         
@@ -47,9 +59,16 @@ class Worker(object):
             spinner = 0
             while self.alive:
                 while self.alive:
-                    ret = select.select([self.sock], [], [], 2.0)
-                    if ret[0]:
-                        break
+                    try:
+                        ret = select.select([self.sock], [], [], 2.0)
+                        if ret[0]:
+                            break
+                    except select.error as err:
+                        if err.errno == errno.EINTR:
+                            break
+                        elif err.errno == errno.EBADF:
+                            return
+                        raise
                 
                 while self.alive:
                     try:
@@ -76,17 +95,21 @@ class Worker(object):
         self.alive = False
     
     def handle(self, conn, client):
-        fcntl.fcntl(conn.fileno(), fcntl.F_SETFD, fcntl.FD_CLOEXEC)
+        # fcntl.fcntl(conn.fileno(), fcntl.F_SETFD, fcntl.FD_CLOEXEC)
+        self.close_on_exec(conn)
         req = http.HttpRequest(conn, client, self.address)
         try:
             result = self.app(req.read(), req.start_response)
             res = http.HttpResponse(req, result)
             res.send()
-            if req.should_close():
+            if req.parser.should_close:
                 req.close()
         except Exception as exc:
-            req.close()
+            conn.send(b'HTTP/1.1 500 Internal Server Error\r\n\r\n')
+            conn.close()
             log.error(f'{client}:request error {exc}')
+            import traceback
+            traceback.print_exc()
 
     def sig_handle_quit(self, sig, frame):
         self.alive = False

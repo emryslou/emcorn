@@ -4,3 +4,7 @@ class RequestError(Exception):
         self.reason = reason
 
         super().__init__(self, (status, reason))
+
+class ParseFirstLineError(RequestError):
+    pass
+

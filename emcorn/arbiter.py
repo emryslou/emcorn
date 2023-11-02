@@ -233,13 +233,11 @@ class Arbiter(object):
                 raise
         
     def sig_handle(self, sig, frame):
-        log.info(f'info sig handle {sig} {frame}')
         if len(self.__sig_queue) < 5:
             self.__sig_queue.append(sig)
+            self.wakeup()
         else:
             log.warn('warnning: ignore rapid singaling: %s' % sig)
-        
-        self.wakeup()
     
     def sig_handler_quit(self):
         raise StopIteration()

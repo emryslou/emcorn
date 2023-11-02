@@ -1,11 +1,14 @@
+import ctypes
 import io
 import re
 import sys
 from urllib.parse import unquote
 
 import emcorn
-from emcorn.http.iostream import IOStream
-from .errors import RequestError
+from emcorn.http.parser import HttpParser
+from emcorn.http.tee import TeeInput
+from emcorn.util import CHUNK_SIZE
+from .exceptions import RequestError
 logger = emcorn.logging.log
 
 def _normalize_name(name):
@@ -14,7 +17,6 @@ def _normalize_name(name):
 class HttpRequest(object):
     
     SERVER_VERSION = 'emcorn/%s' % emcorn.__version__
-    CHUNK_SIZE = 4096
 
     def __init__(self, sock, client_address, server_address):
         self.socket = sock
@@ -29,25 +31,32 @@ class HttpRequest(object):
         self.response_headers = {}
 
         self._version = 11
-        self.io = IOStream(self.socket)
+        self.parser = HttpParser()
         self.start_response_called = False
-        self._should_close = False
 
     def read(self):
-        self.read_headers(first_line = True)
+        headers = {}
+        remain = CHUNK_SIZE
+        buf = ctypes.create_string_buffer(remain)
+        remain -= self.socket.recv_into(buf, remain)
 
-        if '?' in self.path:
-            path_info, query = self.path.split('?', 1)
-        else:
-            path_info, query = self.path, ''
+        while not self.parser.header(headers, buf):
+            data = ctypes.create_string_buffer(remain)
+            remain -= self.socket.recv_into(data, remain)
+            buf = ctypes.create_string_buffer(data.value + buf.value)
         
-        length = self.body_length()
-        if not length:
-            wsgi_input = io.StringIO()
-        elif length == 'chunked':
-            length, wsgi_input = self.decode_chunked()
+        if headers.get('Accept', '').lower() == '100-continue':
+            self.socket.send('100 Continue\n')
+
+        if '?' in self.parser.path:
+            path_info, query = self.parser.path.split('?', 1)
         else:
-            wsgi_input = FileInput(self)
+            path_info, query = self.parser.path, ''
+        
+        if not self.parser.content_length and not self.parser.is_chunked:
+            wsgi_input = io.StringIO()
+        else:
+            wsgi_input = TeeInput(self.socket, self.parser, buf, remain)
         
         environ = {
             "wsgi.url_scheme": 'http',
@@ -64,7 +73,7 @@ class HttpRequest(object):
             "QUERY_STRING": query,
             "RAW_URI": self.path,
             "CONTENT_TYPE": self.headers.get('content-type', ''),
-            "CONTENT_LENGTH": length,
+            "CONTENT_LENGTH": len(wsgi_input.getvalue()),
             "REMOTE_ADDR": self.client[0],
             "REMOTE_PORT": self.client[1],
             "SERVER_NAME": self.server[0],
@@ -73,53 +82,11 @@ class HttpRequest(object):
         }
 
         for key, value in self.headers.items():
-            key = 'HTTP_' + key.replace('-', '_')
+            key = 'HTTP_' + key.upper().replace('-', '_')
             if key not in ('HTTP_CONTENT_TYPE', 'HTTP_CONTENT_LENGTH'):
                 environ[key] = value
         return environ
 
-    def read_headers(self, first_line = False):
-        headers_body = self.io.read_until('\r\n\r\n')
-        if headers_body is None:
-            raise RequestError(400, 'Bad Request')
-        lines = headers_body.split('\r\n')
-        if first_line:
-            self.first_line(lines.pop(0))
-        hname = ''
-        for line in lines:
-            if line == '\t':
-                self.headers[hname] += line.strip()
-            else:
-                try:
-                    hname = self.parse_header(line)
-                except:
-                    pass
-
-    def body_length(self):
-        transfert_encoding = self.headers.get('TRANSFERT-ENCODING', None)
-        content_length = self.headers.get('CONTENT-LENGHT', None)
-
-        if transfert_encoding is None:
-            return content_length
-        elif transfert_encoding == 'chunked':
-            return transfert_encoding
-        else:
-            return None
-
-    def should_close(self):
-        if self._should_close:
-            return True
-        
-        if self.headers.get('CONNECTION') == 'close':
-            return True
-        
-        if self.headers.get('CONNECTION') == 'Keep-Alive':
-            return False
-        
-
-        if not self.version or self.version < 'HTTP/1.1':
-            return True
-    
     def decode_chunked(self):
         length = 0
         data = io.StringIO()
@@ -148,103 +115,9 @@ class HttpRequest(object):
             self.response_headers[name.lower()] = value
         
         self.start_response_called = True
-        # headers = "%s\r\n" % "".join(res_headers)
-        # self.io.send(headers.encode())
 
     def write(self, data):
-        self.io.send(data)
+        self.req.socket.send(data)
     
     def close(self):
         self.socket.close()
-
-    def first_line(self, line):
-        if not line:
-            raise RequestError(400, 'Bad Request')
-        
-        method, path, version = line.split(' ')
-        self.version = version.strip()
-        self.method = method.upper()
-        self.path = path
-        
-    
-    def parse_header(self, line):
-        name, value = line.split(':', 1)
-        name = name.strip().upper()
-        
-        self.headers[name] = value.strip()
-        
-        return name
-
-
-class FileInput(object):
-    stream_size = 4096
-
-    def __init__(self, request):
-        self.length = request.body_length()
-        self.io = request.io
-        self._rbuf = ''
-
-    def close(self):
-        self.eof = False
-    
-    def read(self, amt=None):
-        if self._rbuf and not amt is None:
-            L = len(self._rbuf)
-            if amt > L:
-                amt -= L
-            else:
-                s = self._rbuf[:amt]
-                self._rbuf = self._rbuf[amt:]
-                return s
-            
-            data = self.io.recv(amt)
-            s = self._rbuf + data
-            self._rbuf = ''
-
-            return s
-
-    def readline(self, amt = -1):
-        i = self._rbuf.find('\n')
-        while i < 0 and not(0 < amt <= len(self._rbuf)):
-            new = self.io.recv(self.stream_size)
-            if not new:
-                break
-            i = new.find('\n')
-            if i > 0:
-                i += len(self._rbuf)
-            self._rbuf = self._rbuf + new
-        if i < 0:
-            i = len(self._rbuf)
-        else:
-            i += 1
-        
-        if 0 < amt <= len(self._rbuf):
-            i = amt
-        
-        data, self._rbuf = self._rbuf[:i], self._rbuf[i:]
-        return data
-
-    def readlines(self, sizehint=0):
-        total = 0
-        lines = []
-        
-        while True:
-            line = self.readline()
-            if not line:
-                break
-            lines.append(line)
-            total += len(line)
-            if 0 < sizehint <= total:
-                break
-        
-        return lines
-    
-    def __iter__(self):
-        return self
-    
-    def next(self):
-        r = self.readline()
-        if not r:
-            raise StopIteration()
-        
-        return r
