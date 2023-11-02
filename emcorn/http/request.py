@@ -76,7 +76,7 @@ class HttpRequest(object):
             "QUERY_STRING": query,
             "RAW_URI": self.parser.path,
             "CONTENT_TYPE": headers.get('content-type', ''),
-            "CONTENT_LENGTH": len(wsgi_input.getvalue()),
+            "CONTENT_LENGTH": str(len(wsgi_input.getvalue())),
             "REMOTE_ADDR": self.client[0],
             "REMOTE_PORT": self.client[1],
             "SERVER_NAME": self.server[0],
