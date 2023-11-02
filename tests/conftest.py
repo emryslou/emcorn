@@ -1,5 +1,6 @@
 import pytest
+from emcorn.http import HttpParser
 
 @pytest.fixture
-def demo():
-    pass
+def http_parser():
+    return HttpParser()

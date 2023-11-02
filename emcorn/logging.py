@@ -1,4 +1,5 @@
 import logging
+import os
 
 __all__ = [
     'log', 'configure'
@@ -11,6 +12,13 @@ def configure(opts):
     handlers = []
     if opts.logfile != '-':
         handlers.append(logging.FileHandler(opts.logfile))
+    
+    _loglevel = 'info'
+    if 'LOG_LEVEL' in os.environ:
+        _loglevel = os.environ['LOG_LEVEL'].upper()
+        del os.environ['LOG_LEVEL']
+    else:
+        _loglevel = opts.loglevel.upper()
     
     loglevel = logging.getLevelName(opts.loglevel.upper())
 

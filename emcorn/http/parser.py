@@ -162,18 +162,18 @@ class HttpParser(object):
 
     def filter_body(self, data):
         dlen = len(data)
-        chunk = None
+        chunk = ''
         if self.is_chunked:
             chunk, data = self.read_chunk(data)
             if not chunk:
-                return None, data
+                return '', data
         else:
             if self._content_len > 0:
                 nr = min(dlen, self._content_len)
                 chunk = data[:nr]
                 self._content_len -= nr
 
-                data = None
+                data = ''
         
         self.start_offset = 0
         return chunk, data
