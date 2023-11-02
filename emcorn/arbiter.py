@@ -1,12 +1,8 @@
 import errno
 import fcntl
 import os
-import select
-import signal
-import socket
-import sys
-import time
-import threading
+import select, signal, socket, sys
+import threading, time
 
 
 from emcorn.logging import log
@@ -171,7 +167,7 @@ class Arbiter(object):
 
             
     def fork_worker(self, worker_idx):
-        worker = Worker(worker_idx, self.pid, self.__listener, self.app)
+        worker = Worker(worker_idx, self.pid, self.__listener, self.app, self.timeout / 2)
         pid = os.fork()
         if pid != 0:
             return pid, worker

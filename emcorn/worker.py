@@ -20,11 +20,12 @@ class Worker(object):
         "HUP QUIT INT TERM TTIN TTOU USR1 USR2".split()
     )
 
-    def __init__(self, idx, ppid, sock, app):
+    def __init__(self, idx, ppid, sock, app, timeout):
         self.id = idx
         self.ppid = ppid
         self.pid = '-'
         self.alive = True
+        self.timeout = timeout
 
         fd, tmpname = tempfile.mkstemp()
         self.tmp = os.fdopen(fd, 'r+b')
@@ -68,7 +69,7 @@ class Worker(object):
                     spinner = (spinner + 1) % 2
                     self._fchmod(spinner)
                     try:
-                        ret = select.select([self.sock], [], [], 15)
+                        ret = select.select([self.sock], [], [], self.timeout)
                         if ret[0]:
                             break
                     except select.error as err:
@@ -105,8 +106,12 @@ class Worker(object):
             result = self.app(req.read(), req.start_response)
             http.HttpResponse(conn, result, req).send()
         except Exception as exc:
-            # write_nonblock(conn, b'HTTP/1.1 500 Internal Server Error\r\n\r\n')
-            close(conn)
+            try:
+                write_nonblock(conn, b'HTTP/1.1 500 Internal Server Error\r\n\r\n')
+                close(conn)
+            except Exception as exc:
+                log.error(f'What the f**king, sending server\'s error msg happens some error: {exc}')
+                pass
             log.error(f'{client}:request error {exc}')
             import traceback
             traceback.print_exc()
