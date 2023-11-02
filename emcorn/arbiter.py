@@ -93,7 +93,7 @@ class Arbiter(object):
     def socket_opt(self, sock):
         sock.setblocking(False)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 0)
         if hasattr(socket, 'TCP_CORK'):
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_CORK, 1)
         elif hasattr(socket, 'TCP_NOPUSG'):
@@ -107,6 +107,10 @@ class Arbiter(object):
             try:
                 sig = self.__sig_queue.pop(0) if len(self.__sig_queue) else None
                 if sig is None:
+                    self.murder_workers()
+                    self.reap_workers()
+                    if self.alive:
+                        self.manage_workers()
                     self.sleep()
                     continue
                 
@@ -119,11 +123,6 @@ class Arbiter(object):
                     log.error('Unhandled signal: %s' % signame)
                     continue
                 sig_handler()
-                
-                self.murder_workers()
-                self.reap_workers()
-                if self.alive:
-                    self.manage_workers()
             except Exception as exc:
                 import traceback
                 traceback.print_exc(file=sys.stdout)

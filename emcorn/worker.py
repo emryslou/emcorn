@@ -60,14 +60,12 @@ class Worker(object):
             while self.alive:
                 while self.alive:
                     try:
-                        ret = select.select([self.sock], [], [], 2.0)
+                        ret = select.select([self.sock], [], [], 3.0)
                         if ret[0]:
                             break
                     except select.error as err:
                         if err.errno == errno.EINTR:
                             break
-                        elif err.errno == errno.EBADF:
-                            return
                         raise
                 
                 while self.alive:
@@ -86,6 +84,7 @@ class Worker(object):
             # end while self.alive
         except KeyboardInterrupt:
             self.alive = False
+        log.info(f'{self} done ... ')
     
     def quit(self):
         self.alive = False
