@@ -90,27 +90,7 @@ class HttpRequest(object):
             if key not in ('HTTP_CONTENT_TYPE', 'HTTP_CONTENT_LENGTH'):
                 environ[key] = value
         return environ
-
-    def decode_chunked(self):
-        length = 0
-        data = io.StringIO()
-        while True:
-            line = self.io.read_until('\n').strip().split(';', 1)
-            chunk_size = int(line.pop(0), 16)
-            if chunk_size <= 0:
-                break
-            length += chunk_size
-
-            data.write(self.io.recv(chunk_size))
-            
-            crlf = self.io.read(2)
-            if crlf != '\r\n':
-                raise RequestError((400, "Bad chunked transfer coding (expected '\\r\\n', got %r)" % crlf))
-                return
-        
-        data.seek(0)
-        return data, str(length) or ''
-
+    
     def start_response(self, status, headers):
         self.response_status = int(status.split(" ")[0])
         self.response_headers = {}

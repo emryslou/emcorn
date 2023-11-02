@@ -11,6 +11,9 @@ class HttpParser(object):
         self.method = None
         self.path = None
         self._content_len = None
+        self.start_offset = 0
+        self.chunk_size = 0
+        self._chunk_eof = False
     
     def headers(self, headers, buf):
         if self._headers:
@@ -97,27 +100,45 @@ class HttpParser(object):
     
     def body_eof(self):
         #todoL add chunk
+        if self.is_chunked and self._chunk_eof:
+            return True
+        
         return self._content_len == 0
     
     def read_chunk(self, data):
         dlen = len(data)
-        i = data.find('\n')
-        if i == -1:
-            return None
-
-        chunk = data[:i].strip().split(";", 1)
-        chunk_size = int(chunk.pop(0), 16)
-        if chunk_size <= 0:
-            self._chunk_eof = True
-            return None
-        self.start_offset = i + 1
-        return data
+        if not self.start_offset:
+            i = data.find('\n')
+            if i != -1:
+                chunk = data[:i].strip().split(";", 1)
+                chunk_size = int(chunk.pop(0), 16)
+                self.chunk_size = chunk_size
+                self.start_offset = i + 1
+        else:
+            buf = data[self.start_offset:]
+            end_offset = self.chunk_size + 2
+            if len(buf) == end_offset:
+                if self.chunk_size <= 0:
+                    self._chunk_eof = True
+                    return None, data[:end_offset]
+                self.chunk_size = 0
+                return buf[self.chunk_size:], data[:end_offset]
+        
+        return None, data
     
+    def trailing_header(self, data):
+        i = data.find('\r\n\r\n')
+        return i != -1
+    
+
+
     def filter_body(self, data):
         dlen = len(data)
         chunk = None
         if self.is_chunked:
-            pass
+            chunk, data = self.read_chunk(data)
+            if not chunk:
+                return None, data
         else:
             if self._content_len > 0:
                 nr = min(dlen, self._content_len)

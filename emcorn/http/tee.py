@@ -37,6 +37,8 @@ class TeeInput(object):
         self._len = self._tmp_size()
         return self._len
     
+    def flush(self):
+        self.tmp.flush()
 
     def read(self, length=None):
         if not self.socket:
@@ -115,6 +117,13 @@ class TeeInput(object):
     
     def _finalize(self):
         if self.parser.body_eof():
+            if self.parser.is_chunked:
+                while not self.parser.trailing_header(self.buf):
+                    data = read_partial(self.socket, CHUNK_SIZE)
+                    if not data:
+                        break
+                    self.buf += data
+            del self.buf # todo: why del
             self.socket = None
 
     def _tmp_size(self):
