@@ -58,10 +58,10 @@ def write_nonblock(sock, data):
 def close(sock):
     try:
         sock.shutdown(2)
-    except socket.errno:
+    except socket.error:
         pass
 
     try:
         sock.close()
-    except socket.errno:
+    except socket.error:
         pass

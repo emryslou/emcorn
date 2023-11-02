@@ -97,8 +97,9 @@ class Worker(object):
             result = self.app(req.read(), req.start_response)
             http.HttpResponse(conn, result, req).send()
         except Exception as exc:
-            write_nonblock(conn, b'HTTP/1.1 500 Internal Server Error\r\n\r\n')
+            # write_nonblock(conn, b'HTTP/1.1 500 Internal Server Error\r\n\r\n')
             close(conn)
+            del conn
             log.error(f'{client}:request error {exc}')
             import traceback
             traceback.print_exc()
