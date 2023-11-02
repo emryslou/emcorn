@@ -18,11 +18,11 @@ class HttpResponse(object):
     
     def send(self):
         res_headers = []
-        res_headers.append('%s %s\r\n' % (self.req.parser.version, self.status))
+        res_headers.append('%s %s\r\n' % (self.req.parser.raw_version, self.status))
         res_headers.append('%s %s\r\n' % ('Server:', self.SERVER_VERSION))
         res_headers.append('%s %s\r\n' % ('Date:', http_date()))
         res_headers.append('%s %s\r\n' % ('Status:', str(self.status)))
-        # res_headers.append('%s %s\r\n' % ('Connections:', 'close'))
+        res_headers.append('%s %s\r\n' % ('Connections:', 'close'))
 
         for name, value in self.headers.items():
             res_headers.append("%s: %s\r\n" % (name, value))

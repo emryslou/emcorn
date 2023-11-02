@@ -1,23 +1,36 @@
 import ctypes
 
+from urllib.parse import urlsplit
+
+from emcorn.http.exceptions import HttpParserError, ParseFirstLineError
 from emcorn.logging import log
-from .exceptions import ParseFirstLineError
+from emcorn.util import normalize_name
 
 
 class HttpParser(object):
     def __init__(self):
-        self._headers = {}
+        self._headers = []
+        self._headers_dict = {}
+
+        self.status = ''
+        self.raw_version = ''
+        self.raw_path = ''
+
         self.version = None
-        self.method = None
-        self.path = None
+        self.method = ""
+        self.path = ""
+        self.query_string = ""
+        self.fragment = ""
+
         self._content_len = None
         self.start_offset = 0
         self.chunk_size = 0
         self._chunk_eof = False
     
-    def headers(self, headers, buf):
+    def filter_headers(self, headers, buf):
         if self._headers:
             return self._headers
+
         if isinstance(buf, ctypes.Array):
             buf = buf.value.decode()
         
@@ -34,20 +47,25 @@ class HttpParser(object):
         lines = r.split('\r\n')
         self._first_line(lines.pop(0))
 
+        _headers = {}
         hname = ''
         for line in lines:
             if line == '\t':
-                self._headers[hname] += line.strip()
+                _headers[hname] += line.strip()
             else:
                 try:
-                    hname = self.parse_header(line)
+                    hname = self.parse_header(_headers, line)
                 except:
                     pass
         
-        headers.update(self._headers)
+        self._headers_dict = _headers
+        headers.extend(list(_headers.items()))
 
-        self._content_len = int(self._headers.get('Content-Length') or 0)
-        
+        self._headers = headers
+        self._content_len = int(_headers.get('Content-Length') or 0)
+
+        _, _, self.path, self.query_string, self.fragment = urlsplit(self.raw_path)
+
         return pos
 
     
@@ -55,16 +73,26 @@ class HttpParser(object):
         if not line:
             raise ParseFirstLineError(400, 'Bad Request: first line none')
         
-        method, path, version = line.split(' ')
-        self.version = version.strip()
-        self.method = method.upper()
-        self.path = path
-
-    def parse_header(self, line):
-        name, value = line.split(':', 1)
-        name = name.strip().upper()
+        self.status = status = line.strip()
         
-        self._headers[name] = value.strip()
+        method, path, version = status.split(' ')
+        version = version.strip()
+        self.raw_version = version
+        try:
+            major, minor = version.split('HTTP/')[1].split('.')
+            version = (int(major), int(minor))
+        except IndexError:
+            version = (1, 0)
+
+        self.version = version
+        self.method = method.upper()
+        self.raw_path = path
+
+    def parse_header(self, headers, line):
+        name, value = line.split(':', 1)
+        name = normalize_name(name.strip())
+        
+        headers[name] = value.rsplit("\r\n", 1)[0].strip()
         
         return name
     
@@ -73,10 +101,10 @@ class HttpParser(object):
         # if self._should_close:
         #     return True
         
-        if self._headers.get('CONNECTION') == 'close':
+        if self._headers_dict.get('CONNECTION') == 'close':
             return True
         
-        if self._headers.get('CONNECTION') == 'Keep-Alive':
+        if self._headers_dict.get('CONNECTION') == 'Keep-Alive':
             return False
         
 
@@ -85,13 +113,13 @@ class HttpParser(object):
     
     @property
     def is_chunked(self):
-        transfer_encoding = self._headers.get('Transfer-Encoding', '')
+        transfer_encoding = self._headers_dict.get('Transfer-Encoding', '')
         return transfer_encoding == 'chunked'
     
     @property
     def content_length(self):
-        transfer_encoding = self._headers.get('Transfer-Encoding', None)
-        content_length = self._headers.get('Content-Length', None)
+        transfer_encoding = self._headers_dict.get('Transfer-Encoding', None)
+        content_length = self._headers_dict.get('Content-Length', None)
 
         if transfer_encoding is None:
             return int(content_length or '0')

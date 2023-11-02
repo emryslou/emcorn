@@ -70,3 +70,7 @@ def close(sock):
         sock.close()
     except socket.error:
         pass
+
+
+def normalize_name(name):
+    return '-'.join([w.lower().capitalize() for w in name.split('-')])

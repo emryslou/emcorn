@@ -5,6 +5,8 @@ class RequestError(Exception):
 
         super().__init__(self, (status, reason))
 
-class ParseFirstLineError(RequestError):
+class HttpParserError(Exception):
     pass
 
+class ParseFirstLineError(HttpParserError):
+    pass
