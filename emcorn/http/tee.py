@@ -45,7 +45,7 @@ class TeeInput(object):
             return self.tmp.read(length)
         
         if not length:
-            r = self.tmp.read() # todo: or || ????
+            r = self.tmp.read() or ''
             while self._tee(self.remain, self.buf2):
                 r += self.buf2.value
             return r
