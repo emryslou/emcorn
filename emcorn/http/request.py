@@ -40,7 +40,7 @@ class HttpRequest(object):
         buf = ctypes.create_string_buffer(remain)
         remain -= self.socket.recv_into(buf, remain)
 
-        while not self.parser.header(headers, buf):
+        while not self.parser.headers(headers, buf):
             data = ctypes.create_string_buffer(remain)
             remain -= self.socket.recv_into(data, remain)
             buf = ctypes.create_string_buffer(data.value + buf.value)

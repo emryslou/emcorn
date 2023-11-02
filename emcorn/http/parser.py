@@ -6,13 +6,13 @@ from .exceptions import ParseFirstLineError
 
 class HttpParser(object):
     def __init__(self):
-        self.headers = {}
+        self._headers = {}
         self.version = None
         self.method = None
         self.path = None
         self._content_len = None
     
-    def header(self, headers, buf):
+    def headers(self, headers, buf):
         if isinstance(buf, ctypes.Array):
             buf = buf.value.decode()
         
@@ -33,18 +33,16 @@ class HttpParser(object):
         hname = ''
         for line in lines:
             if line == '\t':
-                self.headers[hname] += line.strip()
+                self._headers[hname] += line.strip()
             else:
                 try:
                     hname = self.parse_header(line)
                 except:
                     pass
         
-        headers = self.headers
+        headers = self._headers
 
-        _content_len = self.headers.get('Content-Length', None)
-        self._content_len = int(_content_len) if _content_len is not None else None
-        
+        self._content_len = int(self._headers.get('Content-Length') or 0)
         
         return headers
 
@@ -62,7 +60,7 @@ class HttpParser(object):
         name, value = line.split(':', 1)
         name = name.strip().upper()
         
-        self.headers[name] = value.strip()
+        self._headers[name] = value.strip()
         
         return name
     
@@ -71,10 +69,10 @@ class HttpParser(object):
         # if self._should_close:
         #     return True
         
-        if self.headers.get('CONNECTION') == 'close':
+        if self._headers.get('CONNECTION') == 'close':
             return True
         
-        if self.headers.get('CONNECTION') == 'Keep-Alive':
+        if self._headers.get('CONNECTION') == 'Keep-Alive':
             return False
         
 
@@ -83,13 +81,13 @@ class HttpParser(object):
     
     @property
     def is_chunked(self):
-        transfer_encoding = self.headers.get('Transfer-Encoding', '')
+        transfer_encoding = self._headers.get('Transfer-Encoding', '')
         return transfer_encoding == 'chunked'
     
     @property
     def content_length(self):
-        transfer_encoding = self.headers.get('Transfer-Encoding', None)
-        content_length = self.headers.get('Content-Length', None)
+        transfer_encoding = self._headers.get('Transfer-Encoding', None)
+        content_length = self._headers.get('Content-Length', None)
 
         if transfer_encoding is None:
             return int(content_length or '0')
