@@ -55,7 +55,7 @@ def write_nonblock(sock, data):
                 break
         except socket.error as err:
             if err.errno == errno.EINTR:
-                break
+                continue
             raise err
     
     write(sock, data)
