@@ -119,6 +119,7 @@ class Arbiter(object):
                     log.error('Unhandled signal: %s' % signame)
                     continue
                 sig_handler()
+                self.wakeup()
             except Exception as exc:
                 import traceback
                 traceback.print_exc(file=sys.stdout)
@@ -215,9 +216,10 @@ class Arbiter(object):
                 diff = time.time() - os.fstat(worker.tmp.fileno()).st_mtime
             except:
                 diff = 0
-            log.info(f'{pid} timeout: {diff} > {self.timeout}?')
+            
             if diff < self.timeout:
                 continue
+            log.info(f'{pid} timeout: {diff} >= {self.timeout}, killed')
             self.kill_worker(pid, signal.SIGKILL)
 
     def wakeup(self):

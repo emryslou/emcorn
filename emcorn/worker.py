@@ -34,6 +34,7 @@ class Worker(object):
         self.close_on_exec(sock)
         self.close_on_exec(fd)
 
+        sock.setblocking(False)
         self.sock = sock
         self.address = sock.getsockname()
        
@@ -53,21 +54,36 @@ class Worker(object):
         signal.signal(signal.SIGUSR1, self.sig_handle_quit)
         signal.signal(signal.SIGUSR2, self.sig_handle_quit)
     
-    def _fchmod(self, mode):
-        if hasattr(os, 'fchmod'):
-            os.fchmod(self.tmp.fileno(), mode)
-        else:
-            os.chmod(self.tmpname, mode)
+    def _fchmod(self):
+        try:
+            os.write(self.tmp.fileno(), b'.')
+        except:
+            pass
         
     def run(self):
         self.pid = os.getpid()
         self.init_signal()
         try:
-            spinner = 0
             while self.alive:
+                nr = 0
+                
                 while self.alive:
-                    spinner = (spinner + 1) % 2
-                    self._fchmod(spinner)
+                    self._fchmod()
+                    try:
+                        conn, addr = self.sock.accept()
+                        self.handle(conn, addr)
+                        nr += 1
+                    except BlockingIOError:
+                        break
+                    except socket.error as err:
+                        if err.errno in [errno.EAGAIN, errno.ECONNABORTED]:
+                            break
+                        raise Exception(err)
+                    if nr == 0:
+                        break
+                
+                while self.alive:
+                    self._fchmod()
                     try:
                         ret = select.select([self.sock], [], [], self.timeout)
                         if ret[0]:
@@ -75,19 +91,10 @@ class Worker(object):
                     except select.error as err:
                         if err.errno == errno.EINTR:
                             break
+                        elif err.errno == errno.EBADF:
+                            return
+
                         raise
-                
-                while self.alive:
-                    try:
-                        conn, addr = self.sock.accept()
-                        conn.setblocking(False)
-                        self.handle(conn, addr)
-                    except BlockingIOError:
-                        break
-                    except socket.error as err:
-                        if err.errno in [errno.EAGAIN, errno.ECONNABORTED]:
-                            break
-                        raise Exception(err)
 
                 # end while True
             # end while self.alive
