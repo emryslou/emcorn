@@ -26,7 +26,7 @@ class HttpResponse(object):
         header_body = "%s\r\n" % "".join(res_headers)
         self.write(header_body.encode())
 
-        if self.req.method == 'HEAD':
+        if self.req.parser.method == 'HEAD':
             return
         
         for chunk in self.data:

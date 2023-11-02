@@ -23,10 +23,10 @@ class HttpRequest(object):
         self.client = client_address
         self.server = server_address
 
-        self.version = None
-        self.method = None
-        self.path = None
-        self.headers = {}
+        # self.version = None
+        # self.method = None
+        # self.path = None
+        # self.headers = {}
         self.response_status = None
         self.response_headers = {}
 
@@ -40,7 +40,10 @@ class HttpRequest(object):
         buf = ctypes.create_string_buffer(remain)
         remain -= self.socket.recv_into(buf, remain)
 
-        while not self.parser.headers(headers, buf):
+        while True:
+            headers = self.parser.headers(headers, buf)
+            if headers:
+                break
             data = ctypes.create_string_buffer(remain)
             remain -= self.socket.recv_into(data, remain)
             buf = ctypes.create_string_buffer(data.value + buf.value)
@@ -68,23 +71,24 @@ class HttpRequest(object):
             "wsgi.run_once": False,
             "SCRIPT_NAME": "",
             "SERVER_SOFTWARE": self.SERVER_VERSION,
-            "REQUEST_METHOD": self.method,
+            "REQUEST_METHOD": self.parser.method,
             "PATH_INFO": unquote(path_info),
             "QUERY_STRING": query,
-            "RAW_URI": self.path,
-            "CONTENT_TYPE": self.headers.get('content-type', ''),
+            "RAW_URI": self.parser.path,
+            "CONTENT_TYPE": headers.get('content-type', ''),
             "CONTENT_LENGTH": len(wsgi_input.getvalue()),
             "REMOTE_ADDR": self.client[0],
             "REMOTE_PORT": self.client[1],
             "SERVER_NAME": self.server[0],
             "SERVER_PORT": self.server[1],
-            "SERVER_PROTOCOL": self.version
+            "SERVER_PROTOCOL": self.parser.version
         }
 
-        for key, value in self.headers.items():
+        for key, value in headers.items():
             key = 'HTTP_' + key.upper().replace('-', '_')
             if key not in ('HTTP_CONTENT_TYPE', 'HTTP_CONTENT_LENGTH'):
                 environ[key] = value
+        logger.debug(f'{self.__class__.__name__}:read {environ} {headers}')
         return environ
 
     def decode_chunked(self):
