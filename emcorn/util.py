@@ -30,14 +30,13 @@ def read_partial(sock, length):
 def write(sock, data):
     buf = b''
     buf += data
-    dlen = len(data)
     while True:
         try:
             _bytes = sock.send(buf)
-            if _bytes < dlen:
+            if _bytes < len(buf):
                 buf = buf[_bytes:]
                 continue
-            return dlen
+            return len(data)
         except socket.error as err:
             if err.errno in (errno.EWOULDBLOCK, errno.EAGAIN):
                 break
