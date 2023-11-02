@@ -30,6 +30,7 @@ def read_partial(sock, length):
 def write(sock, data):
     buf = b''
     buf += data
+    i = 0
     while True:
         try:
             _bytes = sock.send(buf)
@@ -41,8 +42,10 @@ def write(sock, data):
             if err.errno in (errno.EWOULDBLOCK, errno.EAGAIN):
                 break
             elif err.errno in (errno.EPIPE,):
-                continue
+                if i == 0:
+                    continue
             raise
+        i += 1
 
 def write_nonblock(sock, data):
     while True:
