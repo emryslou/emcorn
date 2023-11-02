@@ -1,8 +1,3 @@
-# -*- coding: utf-8 -
-#
-# This file is part of gunicorn released under the MIT license. 
-# See the NOTICE for more information.
-
 import t
 
 @t.request("001.http")
@@ -153,10 +148,12 @@ def test_009(buf, p):
     t.eq(body, "World")
 
 @t.request("010.http")
-def test_010(buf, p):
+def test_010(buf, http_parser):
+    p = http_parser
     headers = []
     i = p.filter_headers(headers, buf)
     t.ne(i, -1)
+    
     t.eq(p.method, "POST")
     t.eq(p.version, (1, 1))
     t.eq(p.path, "/post_chunked_all_your_base")

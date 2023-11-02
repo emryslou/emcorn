@@ -1,5 +1,5 @@
 import ctypes
-
+import sys
 from urllib.parse import urlsplit
 
 from emcorn.http.exceptions import HttpParserError, ParseFirstLineError
@@ -30,15 +30,11 @@ class HttpParser(object):
     def filter_headers(self, headers, buf):
         if self._headers:
             return self._headers
-
-        if isinstance(buf, ctypes.Array):
-            buf = buf.value.decode()
         
         ld = len('\r\n\r\n')
         i = buf.find('\r\n\r\n')
         if i > 0:
-            r = buf[:i]
-            # buf = ctypes.create_string_buffer(cs[i+ld:])
+            r = buf[:i]            
             return self.finalize_headers(headers, r, i + ld)
         
         return -1
@@ -46,7 +42,6 @@ class HttpParser(object):
     def finalize_headers(self, headers, r, pos):
         lines = r.split('\r\n')
         self._first_line(lines.pop(0))
-
         _headers = {}
         hname = ''
         for line in lines:
@@ -65,7 +60,6 @@ class HttpParser(object):
         self._content_len = int(_headers.get('Content-Length') or 0)
 
         _, _, self.path, self.query_string, self.fragment = urlsplit(self.raw_path)
-
         return pos
 
     
@@ -128,37 +122,39 @@ class HttpParser(object):
     
     def body_eof(self):
         #todoL add chunk
-        if self.is_chunked and self._chunk_eof:
+        if self.is_chunked:
+            if self._chunk_eof:
+                return True
+        elif self._content_len == 0:
             return True
-        
-        return self._content_len == 0
+
+        return False
     
     def read_chunk(self, data):
         dlen = len(data)
         if not self.start_offset:
-            i = data.find('\n')
+            i = data.find('\r\n')
             if i != -1:
                 chunk = data[:i].strip().split(";", 1)
                 chunk_size = int(chunk.pop(0), 16)
                 self.chunk_size = chunk_size
-                self.start_offset = i + 1
-        else:
-            buf = data[self.start_offset:]
-            end_offset = self.chunk_size + 2
-            if len(buf) == end_offset:
-                if self.chunk_size <= 0:
+                self.start_offset = i + 2
+                if self.chunk_size == 0:
                     self._chunk_eof = True
-                    return None, data[:end_offset]
+                    return '', data[:self.start_offset]
+        else:
+            buf = data[self.start_offset:self.start_offset + self.chunk_size]
+            end_offset = self.start_offset + self.chunk_size + 2
+            if len(data) >= end_offset:
+                ret = buf, data[end_offset:]
                 self.chunk_size = 0
-                return buf[self.chunk_size:], data[:end_offset]
+                return ret
         
-        return None, data
+        return '', data
     
     def trailing_header(self, data):
         i = data.find('\r\n\r\n')
         return i != -1
-    
-
 
     def filter_body(self, data):
         dlen = len(data)
