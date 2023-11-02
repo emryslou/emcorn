@@ -73,19 +73,15 @@ class Worker(object):
                 while self.alive:
                     try:
                         conn, addr = self.sock.accept()
+                        conn.setblocking(False)
+                        self.handle(conn, addr)
                     except BlockingIOError:
                         break
                     except socket.error as err:
-                        if err.errno != errno.EINTR:
-                            raise err
-                    try:
-                        conn.setblocking(False)
-                        self.handle(conn, addr)
-                    finally:
-                        conn.close()
+                        if err.errno in [errno.EAGAIN, errno.ECONNABORTED]:
+                            break
+                        raise Exception(err)
 
-                    spinner = (spinner + 1) % 2
-                    os.fchmod(self.tmp.fileno(), spinner)
                 # end while True
             # end while self.alive
         except KeyboardInterrupt:
@@ -97,13 +93,10 @@ class Worker(object):
     def handle(self, conn, client):
         # fcntl.fcntl(conn.fileno(), fcntl.F_SETFD, fcntl.FD_CLOEXEC)
         self.close_on_exec(conn)
-        req = http.HttpRequest(conn, client, self.address)
         try:
+            req = http.HttpRequest(conn, client, self.address)
             result = self.app(req.read(), req.start_response)
-            res = http.HttpResponse(req, result)
-            res.send()
-            if req.parser.should_close:
-                req.close()
+            http.HttpResponse(conn, result, req).send()
         except Exception as exc:
             conn.send(b'HTTP/1.1 500 Internal Server Error\r\n\r\n')
             conn.close()

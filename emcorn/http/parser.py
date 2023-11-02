@@ -13,6 +13,8 @@ class HttpParser(object):
         self._content_len = None
     
     def headers(self, headers, buf):
+        if self._headers:
+            return self._headers
         if isinstance(buf, ctypes.Array):
             buf = buf.value.decode()
         
@@ -40,7 +42,7 @@ class HttpParser(object):
                 except:
                     pass
         
-        headers = self._headers
+        headers.update(self._headers)
 
         self._content_len = int(self._headers.get('Content-Length') or 0)
         

@@ -19,14 +19,10 @@ class HttpRequest(object):
     SERVER_VERSION = 'emcorn/%s' % emcorn.__version__
 
     def __init__(self, sock, client_address, server_address):
-        self.socket = sock
+        self.socket = sock.dup()
         self.client = client_address
         self.server = server_address
 
-        # self.version = None
-        # self.method = None
-        # self.path = None
-        # self.headers = {}
         self.response_status = None
         self.response_headers = {}
 
@@ -40,15 +36,12 @@ class HttpRequest(object):
         buf = ctypes.create_string_buffer(remain)
         remain -= self.socket.recv_into(buf, remain)
 
-        while True:
-            headers = self.parser.headers(headers, buf)
-            if headers:
-                break
+        while not self.parser.headers(headers, buf):
             data = ctypes.create_string_buffer(remain)
             remain -= self.socket.recv_into(data, remain)
             buf = ctypes.create_string_buffer(data.value + buf.value)
         
-        if headers.get('Accept', '').lower() == '100-continue':
+        if headers.get('Except', '').lower() == '100-continue':
             self.socket.send('100 Continue\n')
 
         if '?' in self.parser.path:
@@ -88,7 +81,6 @@ class HttpRequest(object):
             key = 'HTTP_' + key.upper().replace('-', '_')
             if key not in ('HTTP_CONTENT_TYPE', 'HTTP_CONTENT_LENGTH'):
                 environ[key] = value
-        logger.debug(f'{self.__class__.__name__}:read {environ} {headers}')
         return environ
 
     def decode_chunked(self):
