@@ -28,12 +28,19 @@ def read_partial(sock, length):
     return data
 
 def write(sock, data):
-    for i in range(2):
+    buf = b''
+    buf += data
+    while True:
         try:
-            return sock.send(data)
-        except socket.error:
-            if i >= 1:
-                raise
+            _bytes = sock.send(buf)
+            buf = buf[_bytes:]
+            return _bytes
+        except socket.error as err:
+            if err.errno in (errno.EWOULDBLOCK, errno.EAGAIN):
+                break
+            elif err.errno in (errno.EPIPE,):
+                continue
+            raise
 
 def write_nonblock(sock, data):
     while True:
