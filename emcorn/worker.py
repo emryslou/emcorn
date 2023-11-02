@@ -12,7 +12,7 @@ import threading
 from emcorn import http
 from emcorn.logging import log
 from emcorn.http.request import RequestError
-from emcorn.util import import_app, write_nonblock
+from emcorn.util import import_app, write_nonblock, close
 
 class Worker(object):
     signals = map(
@@ -60,7 +60,7 @@ class Worker(object):
             while self.alive:
                 while self.alive:
                     try:
-                        ret = select.select([self.sock], [], [], 3.0)
+                        ret = select.select([self.sock], [], [], 15)
                         if ret[0]:
                             break
                     except select.error as err:
@@ -70,10 +70,7 @@ class Worker(object):
                 
                 while self.alive:
                     try:
-                        accept_res = self.sock.accept()
-                        if accept_res is None:
-                            break
-                        conn, addr = accept_res
+                        conn, addr = self.sock.accept()
                         conn.setblocking(False)
                         self.handle(conn, addr)
                     except BlockingIOError:
@@ -101,6 +98,7 @@ class Worker(object):
             http.HttpResponse(conn, result, req).send()
         except Exception as exc:
             write_nonblock(conn, b'HTTP/1.1 500 Internal Server Error\r\n\r\n')
+            close(conn)
             log.error(f'{client}:request error {exc}')
             import traceback
             traceback.print_exc()

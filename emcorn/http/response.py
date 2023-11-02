@@ -1,7 +1,7 @@
 import time
 
 from emcorn.logging import log
-from emcorn.util import http_date, write # , read_partial
+from emcorn.util import http_date, write, close # , read_partial
 
 class HttpResponse(object):
     def __init__(self, sock, data, req):
@@ -36,6 +36,6 @@ class HttpResponse(object):
         for chunk in self.data:
             self.write(chunk)
         
-        self.req.close()
+        close(self.socket)
         if hasattr(self.data, 'close'):
             self.data.close()

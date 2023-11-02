@@ -19,7 +19,7 @@ def read_partial(sock, length):
             ret = select.select([sock.fileno()], [], [], 2.0)
             if ret[0]:
                 break
-        except socket.error as err:
+        except select.error as err:
             if err.errno == errno.EINTR:
                 break
             raise err
@@ -43,8 +43,18 @@ def write_nonblock(sock, data):
                 break
         except socket.error as err:
             if err.errno == errno.EINTR:
-                time.sleep(1)
                 break
             raise err
     
     write(sock, data)
+
+def close(sock):
+    try:
+        sock.shutdown(2)
+    except socket.errno:
+        pass
+
+    try:
+        sock.close()
+    except socket.errno:
+        pass

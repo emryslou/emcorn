@@ -35,7 +35,7 @@ class Arbiter(object):
         self.worker_processes = worker_processes
         self.address = address
         self.app= app
-        self.timeout = 5
+        self.timeout = 30
         self.reexec_pid = 0
 
         self.alive = True
