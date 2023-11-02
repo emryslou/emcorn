@@ -93,7 +93,7 @@ class Worker(object):
         # fcntl.fcntl(conn.fileno(), fcntl.F_SETFD, fcntl.FD_CLOEXEC)
         self.close_on_exec(conn)
         try:
-            req = http.HttpRequest(conn, client, self.address)
+            req = http.HttpRequest(conn, client, self.address, self.id)
             result = self.app(req.read(), req.start_response)
             http.HttpResponse(conn, result, req).send()
         except Exception as exc:

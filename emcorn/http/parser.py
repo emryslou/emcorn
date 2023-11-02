@@ -18,17 +18,16 @@ class HttpParser(object):
         if isinstance(buf, ctypes.Array):
             buf = buf.value.decode()
         
-        cs = ''.join(buf)
         ld = len('\r\n\r\n')
-        i = cs.find('\r\n\r\n')
+        i = buf.find('\r\n\r\n')
         if i > 0:
-            r = cs[:i]
+            r = buf[:i]
             # buf = ctypes.create_string_buffer(cs[i+ld:])
-            return self.finalize_headers(headers, r)
+            return self.finalize_headers(headers, r, i + ld)
         
-        return None
+        return -1
     
-    def finalize_headers(self, headers, r):
+    def finalize_headers(self, headers, r, pos):
         lines = r.split('\r\n')
         self._first_line(lines.pop(0))
 
@@ -46,7 +45,7 @@ class HttpParser(object):
 
         self._content_len = int(self._headers.get('Content-Length') or 0)
         
-        return headers
+        return pos
 
     
     def _first_line(self, line):

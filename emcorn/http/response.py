@@ -1,7 +1,7 @@
 import time
 
 from emcorn.logging import log
-from emcorn.util import http_date
+from emcorn.util import http_date, write
 
 class HttpResponse(object):
     def __init__(self, sock, data, req):
@@ -14,7 +14,7 @@ class HttpResponse(object):
         self.SERVER_VERSION = req.SERVER_VERSION
     
     def write(self, data):
-        self.socket.send(data)
+        write(self.socket, data)
     
     def send(self):
         res_headers = []

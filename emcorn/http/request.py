@@ -7,7 +7,7 @@ from urllib.parse import unquote
 import emcorn
 from emcorn.http.parser import HttpParser
 from emcorn.http.tee import TeeInput
-from emcorn.util import CHUNK_SIZE
+from emcorn.util import CHUNK_SIZE, read_partial
 from .exceptions import RequestError
 logger = emcorn.logging.log
 
@@ -18,8 +18,9 @@ class HttpRequest(object):
     
     SERVER_VERSION = 'emcorn/%s' % emcorn.__version__
 
-    def __init__(self, sock, client_address, server_address):
-        self.socket = sock.dup()
+    def __init__(self, sock, client_address, server_address, wid):
+        self.wid = wid
+        self.socket = sock
         self.client = client_address
         self.server = server_address
 
@@ -33,16 +34,22 @@ class HttpRequest(object):
     def read(self):
         headers = {}
         remain = CHUNK_SIZE
-        buf = ctypes.create_string_buffer(remain)
-        remain -= self.socket.recv_into(buf, remain)
 
-        while not self.parser.headers(headers, buf):
-            data = ctypes.create_string_buffer(remain)
-            remain -= self.socket.recv_into(data, remain)
-            buf = ctypes.create_string_buffer(data.value + buf.value)
+        buf = ''
+        while True:
+            data = read_partial(self.socket, CHUNK_SIZE)
+            if not data:
+                break
+            buf += data.decode()
+            i = self.parser.headers(headers, buf)
+            if i != -1:
+                break
         
-        if headers.get('Except', '').lower() == '100-continue':
-            self.socket.send('100 Continue\n')
+        if not headers:
+            return
+        
+        buf = buf[i:]
+        logger.info(f'worker {self.wid}. got headers:\n{headers}')
 
         if '?' in self.parser.path:
             path_info, query = self.parser.path.split('?', 1)
