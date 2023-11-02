@@ -105,9 +105,13 @@ class Arbiter(object):
         max_raise_exc_retry = 10
         while self.alive:
             try:
+                self.reap_workers()
                 sig = self.__sig_queue.pop(0) if len(self.__sig_queue) else None
                 if sig is None:
                     self.sleep()
+                    self.murder_workers()
+                    if self.alive:
+                        self.manage_workers()
                     continue
                 
                 if sig not in self.signal_names:
@@ -119,10 +123,6 @@ class Arbiter(object):
                     log.error('Unhandled signal: %s' % signame)
                     continue
                 sig_handler()
-                self.murder_workers()
-                self.reap_workers()
-                if self.alive:
-                    self.manage_workers()
             except Exception as exc:
                 import traceback
                 traceback.print_exc(file=sys.stdout)

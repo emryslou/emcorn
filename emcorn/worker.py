@@ -52,6 +52,12 @@ class Worker(object):
         signal.signal(signal.SIGUSR1, self.sig_handle_quit)
         signal.signal(signal.SIGUSR2, self.sig_handle_quit)
     
+    def _fchmod(self, mode):
+        if hasattr(os, 'fchmod'):
+            os.fchmod(self.tmp.fileno(), mode)
+        else:
+            os.chmod(self.tmpname, mode)
+        
     def run(self):
         self.pid = os.getpid()
         self.init_signal()
@@ -59,6 +65,8 @@ class Worker(object):
             spinner = 0
             while self.alive:
                 while self.alive:
+                    spinner = (spinner + 1) % 2
+                    self._fchmod(spinner)
                     try:
                         ret = select.select([self.sock], [], [], 15)
                         if ret[0]:
@@ -99,7 +107,6 @@ class Worker(object):
         except Exception as exc:
             # write_nonblock(conn, b'HTTP/1.1 500 Internal Server Error\r\n\r\n')
             close(conn)
-            del conn
             log.error(f'{client}:request error {exc}')
             import traceback
             traceback.print_exc()
