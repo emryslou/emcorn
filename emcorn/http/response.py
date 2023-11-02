@@ -1,7 +1,7 @@
 import time
 
 from emcorn.logging import log
-from emcorn.util import http_date, write
+from emcorn.util import http_date, write # , read_partial
 
 class HttpResponse(object):
     def __init__(self, sock, data, req):
@@ -22,7 +22,7 @@ class HttpResponse(object):
         res_headers.append('%s %s\r\n' % ('Server:', self.SERVER_VERSION))
         res_headers.append('%s %s\r\n' % ('Date:', http_date()))
         res_headers.append('%s %s\r\n' % ('Status:', str(self.status)))
-        res_headers.append('%s %s\r\n' % ('Connections:', 'close'))
+        # res_headers.append('%s %s\r\n' % ('Connections:', 'close'))
 
         for name, value in self.headers.items():
             res_headers.append("%s: %s\r\n" % (name, value))

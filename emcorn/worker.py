@@ -70,7 +70,10 @@ class Worker(object):
                 
                 while self.alive:
                     try:
-                        conn, addr = self.sock.accept()
+                        accept_res = self.sock.accept()
+                        if accept_res is None:
+                            break
+                        conn, addr = accept_res
                         conn.setblocking(False)
                         self.handle(conn, addr)
                     except BlockingIOError:
@@ -93,7 +96,7 @@ class Worker(object):
         # fcntl.fcntl(conn.fileno(), fcntl.F_SETFD, fcntl.FD_CLOEXEC)
         self.close_on_exec(conn)
         try:
-            req = http.HttpRequest(conn, client, self.address, self.id)
+            req = http.HttpRequest(conn, client, self.address)
             result = self.app(req.read(), req.start_response)
             http.HttpResponse(conn, result, req).send()
         except Exception as exc:

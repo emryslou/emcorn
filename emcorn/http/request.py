@@ -18,8 +18,7 @@ class HttpRequest(object):
     
     SERVER_VERSION = 'emcorn/%s' % emcorn.__version__
 
-    def __init__(self, sock, client_address, server_address, wid):
-        self.wid = wid
+    def __init__(self, sock, client_address, server_address):
         self.socket = sock
         self.client = client_address
         self.server = server_address
@@ -45,11 +44,13 @@ class HttpRequest(object):
             if i != -1:
                 break
         
+        if not buf:
+            self.socket.close()
+        
         if not headers:
-            return
+            return {}
         
         buf = buf[i:]
-        logger.info(f'worker {self.wid}. got headers:\n{headers}')
 
         if '?' in self.parser.path:
             path_info, query = self.parser.path.split('?', 1)
@@ -59,7 +60,7 @@ class HttpRequest(object):
         if not self.parser.content_length and not self.parser.is_chunked:
             wsgi_input = io.StringIO()
         else:
-            wsgi_input = TeeInput(self.socket, self.parser, buf, remain)
+            wsgi_input = TeeInput(self.socket, self.parser, buf)
         
         environ = {
             "wsgi.url_scheme": 'http',

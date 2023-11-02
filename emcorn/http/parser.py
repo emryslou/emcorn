@@ -99,22 +99,32 @@ class HttpParser(object):
         #todoL add chunk
         return self._content_len == 0
     
-    def fetch_body(self, buf, data):
+    def read_chunk(self, data):
         dlen = len(data)
-        ctypes.resize(buf, ctypes.sizeof(data))
+        i = data.find('\n')
+        if i == -1:
+            return None
+
+        chunk = data[:i].strip().split(";", 1)
+        chunk_size = int(chunk.pop(0), 16)
+        if chunk_size <= 0:
+            self._chunk_eof = True
+            return None
+        self.start_offset = i + 1
+        return data
+    
+    def filter_body(self, data):
+        dlen = len(data)
+        chunk = None
         if self.is_chunked:
-            # todo: chunk
             pass
         else:
             if self._content_len > 0:
-                nr = min(len(data), self._content_len)
-
-                ctypes.memmove(ctypes.addressof(buf), ctypes.addressof(data))
-
+                nr = min(dlen, self._content_len)
+                chunk = data[:nr]
                 self._content_len -= nr
 
-                data.value = None
-                ctypes.resize(buf, nr)
+                data = None
         
         self.start_offset = 0
-        return data
+        return chunk, data

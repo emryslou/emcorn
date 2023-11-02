@@ -1,6 +1,7 @@
 import datetime
 import errno
 import select, socket
+import time
 
 CHUNK_SIZE = 4096
 MAX_BODY = 1024 * (80 + 32)
@@ -42,7 +43,8 @@ def write_nonblock(sock, data):
                 break
         except socket.error as err:
             if err.errno == errno.EINTR:
+                time.sleep(1)
                 break
             raise err
     
-    sock.send(data)
+    write(sock, data)

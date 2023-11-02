@@ -3,12 +3,11 @@ import io
 import os
 import tempfile
 
-from emcorn.util import MAX_BODY, CHUNK_SIZE
+from emcorn.util import MAX_BODY, CHUNK_SIZE, read_partial
 
 class TeeInput(object):
-    def __init__(self, socket, parser, buf, remain):
+    def __init__(self, socket, parser, buf):
         self.buf = buf
-        self.remain = remain
         self.parser = parser
         self.socket = socket
         
@@ -17,23 +16,22 @@ class TeeInput(object):
             self.tmp = io.StringIO()
         else:
             self.tmp = tempfile.TemporaryFile()
-
-        self.buf2 = ctypes.create_string_buffer(self.tmp)
         
         if len(buf) > 0:
-            parser.fetch_body(self.buf2, buf)
+            chunk, self.buf = parser.filter_body(buf)
+            if chunk:
+                self.tmp.write(chunk)
+                self.tmp.seek(0)
             self._finalize()
-            self.tmp.write(self.buf2)
-            self.tmp.seek(0)
     
     @property
     def len(self):
         if self._len:
             return self._len
-        if self.remain:
+        if self.socket:
             pos = self.tmp.tell()
             while True:
-                if not self._tee(self.remain, self.buf2):
+                if not self._tee(CHUNK_SIZE):
                     break
             self.tmp.seek(pos)
         self._len = self._tmp_size()
@@ -41,54 +39,83 @@ class TeeInput(object):
     
 
     def read(self, length=None):
-        if not self.remain:
+        if not self.socket:
             return self.tmp.read(length)
         
-        if not length:
+        if length is None:
             r = self.tmp.read() or ''
-            while self._tee(self.remain, self.buf2):
-                r += self.buf2.value
-            return r
+            while True:
+                chunk = self._tee(CHUNK_SIZE)
+                if not chunk:
+                    break
+                r += chunk
         else:
-            r = self.buf2
             diff = self._tmp_size() - self.tmp.tell()
             if not diff:
-                return self._ensure_length(self._tee(self.remain, r), self.remain)
+                return self._ensure_length(self._tee(length), length)
             else:
-                length = min(diff, self.remain)
-                return self._ensuare_length(self._tee(length, r), length)
+                _length = min(diff, length)
+                return self._ensuare_length(self.tmp.read(_length), _length)
     
     def readline(self, amt=-1):
-        pass
+        if not self.socket:
+            return self.tmp.readline(amt)
+        
+        orig_size = self._tmp_size()
+        if self.tmp.tell() == orig_size:
+            if not self._tee(CHUNK_SIZE):
+                return ''
+            self.tmp.seek(orig_size)
+        
+        line = self.tmp.readline()
+        if 0 < size and len(line) < size:
+            self.tmp.seek(orig_size)
+            while True:
+                if not self._tee(CHUNK_SIZE):
+                    self.tmp.seek(orig_size)
+                    return self.tmp.readline(size)
+        
+        return line
 
     def readlines(self, sizehints=0):
-        pass
+        lines = []
+        while True:
+            line = self.readline()
+            if not line:
+                break
+            lines.append(line)
+            total += len(line)
+            if 0 < sizehints <= total:
+                break
+        #end while
+        return lines
 
-    def __next__(self):
+    def next(self):
         r = self.readline()
         if not r:
             raise StopIteration()
         return r
     
-    next = __next__
+    __next__ = next
 
     def __iter__(self):
         return self
     
-    def _tee(self, length, dst):
-        while not self.parser.body_eof() and self.remain:
-            data = ctypes.create_string_buffer(length)
-            length -= self.socket.recv_into(data, length)
-            self.remain = length
-            if self.parser.fetch_body(dst, data):
-                self.tmp.write(dst.value)
+    def _tee(self, length):
+        while not self.parser.body_eof():
+            data = read_partial(self.socket, length)
+            self.buf += data
+            chunk, self.buf = self.parser.filter_body(self.buf)
+            if chunk:
+                self.tmp.write(chunk)
                 self.tmp.seek(0, os.SEEK_END)
-                return dst
+                return chunk
         self._finalize()
         return ''
     
     def _finalize(self):
-        pass
+        if self.parser.body_eof():
+            self.socket = None
 
     def _tmp_size(self):
         if isinstance(self.tmp, io.StringIO):
@@ -101,6 +128,6 @@ class TeeInput(object):
             return buf
         
         while (len(buf) < length and self.len != self.tmp.pos()):
-            buf += self._tee(length - len(buf), self.buf2)
+            buf += self._tee(length - len(buf))
         
         return buf
