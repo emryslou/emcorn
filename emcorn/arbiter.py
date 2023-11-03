@@ -27,10 +27,11 @@ class Arbiter(object):
         if name[:3] == 'SIG' and name[3] != '_'
     )
 
-    def __init__(self, address, worker_processes, app):
+    def __init__(self, address, worker_processes, app, debug=False):
         self.worker_processes = worker_processes
         self.address = address
         self.app= app
+        self.debug = debug
         self.timeout = 30
         self.reexec_pid = 0
 
@@ -168,7 +169,7 @@ class Arbiter(object):
 
             
     def fork_worker(self, worker_idx):
-        worker = Worker(worker_idx, self.pid, self.__listener, self.app, self.timeout / 2)
+        worker = Worker(worker_idx, self.pid, self.__listener, self.app, self.timeout / 2, self.debug)
         pid = os.fork()
         if pid != 0:
             return pid, worker

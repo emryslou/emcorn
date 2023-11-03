@@ -12,6 +12,7 @@ def options():
         op.make_option('--workers', dest='workers', default='1', type='int', help='开启工作进程数，默认: [%default]'),
         op.make_option('--log-level', dest='loglevel', default='info', help='日志输出级别[debug, info, warn, error, fatal]: [%default]'),
         op.make_option('--log-file', dest='logfile', default='-', help='日志输出文件，默认: [%default]'),
+        op.make_option('-d', '--debug', dest='debug', default=False, action='store_true', help='开启调试模式，默认: [%default]. 开启后，只有一个 worker 进程'),
     ]
 
 
@@ -22,10 +23,16 @@ def main(usage):
 
     print(emcorn_log())
     log.info(f'listening: {opts.host}:{opts.port}')
+
+    if opts.debug:
+        if opts.workers > 1:
+            log.info('debug mode, workers will be setted value 1')
+        opts.workers = 1
+
     log.info(f'worker count:{opts.workers}')
 
     app = import_app(args[0])
-    arbiter = Arbiter((opts.host, opts.port), opts.workers, app)
+    arbiter = Arbiter((opts.host, opts.port), opts.workers, app, opts.debug)
     arbiter.run()
 
 

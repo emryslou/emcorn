@@ -15,12 +15,13 @@ class Worker(object):
         "HUP QUIT INT TERM TTIN TTOU USR1 USR2".split()
     )
 
-    def __init__(self, idx, ppid, sock, app, timeout):
+    def __init__(self, idx, ppid, sock, app, timeout, debug=False):
         self.id = idx
         self.ppid = ppid
         self.pid = '-'
         self.alive = True
         self.timeout = timeout
+        self.debug = debug
 
         fd, tmpname = tempfile.mkstemp()
         self.tmp = os.fdopen(fd, 'r+b')
@@ -104,10 +105,10 @@ class Worker(object):
         # fcntl.fcntl(conn.fileno(), fcntl.F_SETFD, fcntl.FD_CLOEXEC)
         self.close_on_exec(conn)
         try:
-            req = http.HttpRequest(conn, client, self.address)
+            req = http.HttpRequest(conn, client, self.address, self.debug)
             try:
                 res = self.app(req.read(), req.start_response)
-                http.HttpResponse(conn, res, req).send()
+                http.HttpResponse(conn, res, req, self.debug).send()
             except BaseException as e:
                 exc = ''.join([traceback.format_exc()])
                 msg = (

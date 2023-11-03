@@ -33,10 +33,11 @@ class HttpRequest(object):
     
     SERVER_VERSION = 'emcorn/%s' % emcorn.__version__
 
-    def __init__(self, sock, client_address, server_address):
+    def __init__(self, sock, client_address, server_address, debug=False):
         self.socket = sock
         self.client = client_address
         self.server = server_address
+        self.debug = debug
 
         self.response_status = None
         self.response_headers = {}
@@ -83,7 +84,7 @@ class HttpRequest(object):
             "wsgi.errors": sys.stderr,
             "wsgi.version": (1, 0),
             "wsgi.multithread": False,
-            "wsgi.multiprocess": True,
+            "wsgi.multiprocess": not self.debug,
             "wsgi.run_once": False,
             "SCRIPT_NAME": "",
             "SERVER_SOFTWARE": self.SERVER_VERSION,

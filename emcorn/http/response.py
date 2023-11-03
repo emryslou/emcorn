@@ -4,12 +4,13 @@ from emcorn.logging import log
 from emcorn.util import http_date, write, close # , read_partial
 
 class HttpResponse(object):
-    def __init__(self, sock, data, req):
+    def __init__(self, sock, data, req, debug=False):
         self.socket = sock
         self.data = data
         self.req = req
-        self.headers = self.req.response_headers or {}
+        self.debug = debug
 
+        self.headers = self.req.response_headers or {}
         self.status = req.response_status
         self.SERVER_VERSION = req.SERVER_VERSION
     
