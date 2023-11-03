@@ -1,5 +1,6 @@
 import logging
-import optparse as op
+import optparse as op, os
+import sys
 
 from emcorn.arbiter import Arbiter
 from emcorn.logging import log, configure as configure_log
@@ -14,8 +15,19 @@ def options():
         op.make_option('--log-file', dest='logfile', default='-', help='日志输出文件，默认: [%default]'),
         op.make_option('-d', '--debug', dest='debug', default=False, action='store_true', help='开启调试模式，默认: [%default]. 开启后，只有一个 worker 进程'),
         op.make_option('-p', '--pid', dest='pidfile', help='后台进程PID文件'),
+        op.make_option('-D', '--daemon', dest='daemon', action='store_true', help='以后台服务方式运行'),
     ]
 
+def daemonize(log):
+    pid = os.fork()
+    if pid != 0:
+        log.debug('Arbiter daemonized; parent exiting.')
+        os._exit(0)
+    os.close(0)
+    sys.stdin = sys.__stdin__ = open('/dev/null')
+    sys.stdout = sys.__stdout__ = open('/dev/null')
+    sys.stderr = sys.__stderr__ = open('/dev/null')
+    os.setsid()
 
 def main(usage):
     parser = op.OptionParser(usage=usage, option_list=options())
@@ -28,14 +40,14 @@ def main(usage):
             log.info('debug mode, workers will be setted value 1')
         opts.workers = 1
     log.info(f'worker count:{opts.workers}')
-
     app = import_app(args[0])
-    arbiter = Arbiter(
-            (opts.host, opts.port), opts.workers, app,
-            debug=opts.debug, pidfile=opts.pidfile
-        )
-    arbiter.run()
-
+    if opts.daemon:
+        daemonize(log)
+    
+    Arbiter(
+        (opts.host, opts.port), opts.workers, app,
+        debug=opts.debug, pidfile=opts.pidfile
+    ).run()
 
 def emcorn_log():
     return """

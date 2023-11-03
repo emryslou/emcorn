@@ -2,7 +2,7 @@ import errno
 import fcntl
 import os
 import select, signal, socket, sys
-import threading, time
+import tempfile, threading, time
 
 
 from emcorn.logging import log
@@ -27,22 +27,81 @@ class Arbiter(object):
         if name[:3] == 'SIG' and name[3] != '_'
     )
 
-    _pidfile = None
-
     def __init__(self, address, worker_processes, app, debug=False, pidfile='pidfile'):
+        self._pidfile = None
+
         self.worker_processes = worker_processes
         self.address = address
         self.app= app
         self.debug = debug
+        self.alive = True
+        self.pid = None
+        self.pidfile = pidfile
+
         self.timeout = 30
         self.reexec_pid = 0
-        self._pidfile = pidfile
 
-        self.alive = True
-        self.pid = os.getpid()
         self.init_signal()
         self.listen()
-        log.info('Booted Arbiter: %s' % self.pid)
+
+    def _del_pidfile(self):
+        self._pidfile = None
+    
+    def _get_pidfile(self):
+        return self._pidfile
+    
+    def _set_pidfile(self, path):
+        if not path:
+            return
+        pid = self.valid_pidfile(path)
+        cur_pid = os.getpid()
+        if pid:
+            if self.pidfile and path == self.pidfile and pid == cur_pid:
+                return path
+
+            raise RuntimeError(
+                    f'Already running on PID: {cur_pid}'
+                    f'(or pid file {path!r} is stale)'
+                )
+        
+        if self.pidfile:
+            self.unlink_pidfile(self.pidfile)
+        
+        fd, fname = tempfile.mkstemp()
+        os.write(fd, ('%s\n' % cur_pid).encode())
+        os.rename(fname, path)
+        os.close(fd)
+        log.info(f'path: {path} {cur_pid}')
+        self.pid = cur_pid
+        self._pidfile = path
+    
+    pidfile = property(_get_pidfile, _set_pidfile, _del_pidfile)
+
+    def unlink_pidfile(self, path):
+        try:
+            with open(path, 'r') as f:
+                if int(f.read() or 0) == self.pid:
+                    os.unlink(path)
+        except:
+            pass
+    
+    def valid_pidfile(self, path):
+        try:
+            with open(path, 'r') as f:
+                pid = int(f.read() or 0)
+                if pid <= 0:
+                    return
+                try:
+                    os.kill(pid, 0)
+                    return pid
+                except OSError as e:
+                    if e.errno == errno.ESRCH:
+                        return
+                    raise
+        except IOError as e:
+            if e.errno == errno.ENOENT:
+                return
+            raise
 
     def init_signal(self):
         if self.__pipe:
@@ -136,10 +195,12 @@ class Arbiter(object):
                     max_raise_exc_retry -= 1
             except KeyboardInterrupt:
                 self.alive = False
-            except StopIteration:
-                break
+            
         #end while self.alive
         self.stop()
+        log.info('Master is shutting down.')
+        if self.pidfile:
+            self.unlink_pidfile(self.pidfile)
         sys.exit(0)
     
     def stop(self, graceful = True):
@@ -244,17 +305,15 @@ class Arbiter(object):
             log.warn('warnning: ignore rapid singaling: %s' % sig)
     
     def sig_handler_quit(self):
-        raise StopIteration()
+        pass
     
     def sig_handler_int(self):
         self.alive = False
         self.stop(False)
-        raise StopIteration()
     
     def sig_handler_term(self):
         self.alive = False
         self.stop(False)
-        raise StopIteration()
     
     def sig_handler_ttin(self):
         self.worker_processes += 1
@@ -268,7 +327,6 @@ class Arbiter(object):
     
     def sig_handler_hup(self):
         self.reexec()
-        raise StopIteration()
     
     def sig_handler_usr1(self):
         self.kill_workers(signal.SIGUSR1)
