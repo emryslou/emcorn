@@ -62,9 +62,6 @@ class HttpRequest(object):
         if not buf:
             self.socket.close()
         
-        if not headers:
-            environ.update({})
-            return environ
         if self.parser._headers_dict.get('Except', '').lower() == '100-continue':
             self.write('100 Continue\n')
 
