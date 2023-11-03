@@ -40,11 +40,11 @@ class TeeInput(object):
     def flush(self):
         self.tmp.flush()
 
-    def read(self, length=None):
+    def read(self, length=-1):
         if not self.socket:
             return self.tmp.read(length)
         
-        if length is None:
+        if length < 0:
             r = self.tmp.read() or ''
             while True:
                 chunk = self._tee(CHUNK_SIZE)
@@ -112,9 +112,6 @@ class TeeInput(object):
                 self.tmp.write(chunk)
                 self.tmp.seek(0, os.SEEK_END)
                 return chunk
-            if not data:
-                self.socket.close()
-                self.socket = None
         self._finalize()
         return ''
     
