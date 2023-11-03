@@ -75,6 +75,7 @@ class HttpRequest(object):
         else:
             wsgi_input = TeeInput(self.socket, self.parser, buf[i:])
         
+        logger.debug(f'headers {self.parser._headers_dict}')
         environ = {
             "wsgi.url_scheme": 'http',
             "wsgi.input": wsgi_input,
@@ -89,7 +90,7 @@ class HttpRequest(object):
             "PATH_INFO": unquote(self.parser.path),
             "QUERY_STRING": self.parser.query_string,
             "RAW_URI": self.parser.raw_path,
-            "CONTENT_TYPE": self.parser._headers_dict.get('content-type', ''),
+            "CONTENT_TYPE": self.parser._headers_dict.get('Content-Type', ''),
             "CONTENT_LENGTH": str(wsgi_input.len),
             "REMOTE_ADDR": self.client[0],
             "REMOTE_PORT": self.client[1],

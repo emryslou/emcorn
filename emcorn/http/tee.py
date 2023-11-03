@@ -42,7 +42,10 @@ class TeeInput(object):
 
     def read(self, length=-1):
         if not self.socket:
-            return self.tmp.read(length)
+            ret = self.tmp.read(length)
+            if isinstance(ret, bytes):
+                ret = ret.decode()
+            return ret
         
         if length < 0:
             r = self.tmp.read() or ''
@@ -106,10 +109,10 @@ class TeeInput(object):
     def _tee(self, length):
         while not self.parser.body_eof():
             data = read_partial(self.socket, length)
-            self.buf += data
+            self.buf += data.decode()
             chunk, self.buf = self.parser.filter_body(self.buf)
             if chunk:
-                self.tmp.write(chunk)
+                self.tmp.write(chunk.encode())
                 self.tmp.seek(0, os.SEEK_END)
                 return chunk
         self._finalize()
@@ -130,7 +133,7 @@ class TeeInput(object):
         if isinstance(self.tmp, io.StringIO):
             return len(self.tmp.getvalue()) # len(self.tmp)
         else:
-            return int(os.fstat(self.tmp.fileno()[6]))
+            return int(os.fstat(self.tmp.fileno())[6])
 
     def _ensuare_length(self, buf, length):
         if not buf or not self._len:
