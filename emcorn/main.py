@@ -13,6 +13,7 @@ def options():
         op.make_option('--log-level', dest='loglevel', default='info', help='日志输出级别[debug, info, warn, error, fatal]: [%default]'),
         op.make_option('--log-file', dest='logfile', default='-', help='日志输出文件，默认: [%default]'),
         op.make_option('-d', '--debug', dest='debug', default=False, action='store_true', help='开启调试模式，默认: [%default]. 开启后，只有一个 worker 进程'),
+        op.make_option('-p', '--pid', dest='pidfile', help='后台进程PID文件'),
     ]
 
 
@@ -29,7 +30,10 @@ def main(usage):
     log.info(f'worker count:{opts.workers}')
 
     app = import_app(args[0])
-    arbiter = Arbiter((opts.host, opts.port), opts.workers, app, opts.debug)
+    arbiter = Arbiter(
+            (opts.host, opts.port), opts.workers, app,
+            debug=opts.debug, pidfile=opts.pidfile
+        )
     arbiter.run()
 
 

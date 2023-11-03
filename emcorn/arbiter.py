@@ -27,13 +27,16 @@ class Arbiter(object):
         if name[:3] == 'SIG' and name[3] != '_'
     )
 
-    def __init__(self, address, worker_processes, app, debug=False):
+    _pidfile = None
+
+    def __init__(self, address, worker_processes, app, debug=False, pidfile='pidfile'):
         self.worker_processes = worker_processes
         self.address = address
         self.app= app
         self.debug = debug
         self.timeout = 30
         self.reexec_pid = 0
+        self._pidfile = pidfile
 
         self.alive = True
         self.pid = os.getpid()
