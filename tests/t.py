@@ -5,13 +5,14 @@ sys.path.append(project_dir)
 
 import inspect
 import re
+import tempfile
 import unittest
 
-from emcorn.http import HttpParser
+from emcorn.http import HttpParser, HttpRequest
 
 dirname = os.path.dirname(__file__)
 
-def data_source(fname, eol):
+def data_source(fname):
     with open(fname) as handle:
         lines = []
         for line in handle:
@@ -21,18 +22,54 @@ def data_source(fname, eol):
         return "".join(lines)
 
 class request(object):
-    def __init__(self, name, eol = '\r\n'):
+    def __init__(self, name):
         self.fname = os.path.join(dirname, 'requests', name)
-        self.eol = eol
     
     def __call__(self, func):
         def run():
-            src = data_source(self.fname, self.eol)
+            src = data_source(self.fname)
             func(src, HttpParser())
         
         run.__name__ = '%s(%s)' % (func.__name__, self.fname.split('/')[-1])
 
         return run
+
+class FakeSocket(object):
+    def __init__(self, data):
+        self.tmp = tempfile.TemporaryFile()
+        self.tmp.write(data)
+        self.tmp.flush()
+        self.tmp.seek(0)
+    
+    def fileno(self):
+        return self.tmp.fileno()
+    
+    def len(self):
+        return self.tmp.len # todo: need to checkout ????
+    
+    def recv(self, length=None):
+        return self.tmp.read()
+    
+    def seek(self, offset, whence=0):
+        self.tmp.seek(offset, whence)
+    
+    def dup(self):
+        return self
+
+
+class http_request(object):
+    def __init__(self, name):
+        self.fname = os.path.join(dirname, 'requests', name)
+        self.fake_client, self.fake_server = ('127.0.0.1', 8120), ('127.0.0.1', 8089)
+
+    def __call__(self, func):
+        def inner():
+            fsock = FakeSocket(data_source(self.fname).encode())
+            req = HttpRequest(fsock, self.fake_client, self.fake_server)
+            func(req)
+        
+        inner.__name__ = func.__name__
+        return inner
 
 def eq(a, b):
     assert a == b, "%r != %r" % (a, b)

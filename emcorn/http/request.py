@@ -6,6 +6,7 @@ from urllib.parse import unquote
 
 import emcorn
 
+from emcorn.http._type import StringIO
 from emcorn.http.exceptions import RequestError
 from emcorn.http.parser import HttpParser
 from emcorn.http.tee import TeeInput
@@ -16,7 +17,7 @@ logger = emcorn.logging.log
 
 DEFAULT_ENVIRON = {
     "wsgi.url_scheme": 'http',
-    "wsgi.input": io.StringIO(),
+    "wsgi.input": StringIO(),
     "wsgi.errors": sys.stderr,
     "wsgi.version": (1, 0),
     "wsgi.multithread": False,
@@ -73,7 +74,7 @@ class HttpRequest(object):
             path_info, query = self.parser.path, ''
         
         if not self.parser.content_length and not self.parser.is_chunked:
-            wsgi_input = io.StringIO()
+            wsgi_input = StringIO()
         else:
             wsgi_input = TeeInput(self.socket, self.parser, buf[i:])
         
@@ -92,7 +93,7 @@ class HttpRequest(object):
             "QUERY_STRING": self.parser.query_string,
             "RAW_URI": self.parser.raw_path,
             "CONTENT_TYPE": self.parser._headers_dict.get('content-type', ''),
-            "CONTENT_LENGTH": str(len(wsgi_input.getvalue())),
+            "CONTENT_LENGTH": str(wsgi_input.len),
             "REMOTE_ADDR": self.client[0],
             "REMOTE_PORT": self.client[1],
             "SERVER_NAME": self.server[0],
