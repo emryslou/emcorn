@@ -35,7 +35,7 @@ class request(object):
         return run
 
 class FakeSocket(object):
-    def __init__(self, data):
+    def __init__(self, data=""):
         self.tmp = tempfile.TemporaryFile()
         self.tmp.write(data)
         self.tmp.flush()
@@ -49,6 +49,10 @@ class FakeSocket(object):
     
     def recv(self, length=None):
         return self.tmp.read()
+    
+    def send(self, data):
+        self.tmp.write(data)
+        self.tmp.flush()
     
     def seek(self, offset, whence=0):
         self.tmp.seek(offset, whence)
