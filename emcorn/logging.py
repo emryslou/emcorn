@@ -26,3 +26,7 @@ def configure(opts):
     for h in handlers:
         h.setFormatter(logging.Formatter('[%(asctime)s][%(levelname)s]:%(message)s'))
         log.addHandler(h)
+
+def add_handler(handler):
+    handler.setFormatter(logging.Formatter('[%(asctime)s][%(levelname)s]:%(message)s'))
+    log.addHandler(handler)

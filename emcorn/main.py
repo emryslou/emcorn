@@ -3,7 +3,7 @@ import optparse as op, os
 import sys
 
 from emcorn.arbiter import Arbiter
-from emcorn.logging import log, configure as configure_log
+from emcorn.logging import log, configure as configure_log, add_handler
 from emcorn.util import import_app
 
 def options():
@@ -18,21 +18,22 @@ def options():
         op.make_option('-D', '--daemon', dest='daemon', action='store_true', help='以后台服务方式运行'),
     ]
 
-def daemonize(log):
-    pid = os.fork()
-    if pid != 0:
-        log.debug('Arbiter daemonized; parent exiting.')
+def daemonize(opts):
+    if 'EMCORN_FD' in os.environ:
+        return
+
+    if os.fork():
         os._exit(0)
-    os.close(0)
+    os.setsid()
+    if os.fork():
+        os._exit(0)
     sys.stdin = sys.__stdin__ = open('/dev/null')
     sys.stdout = sys.__stdout__ = open('/dev/null')
     sys.stderr = sys.__stderr__ = open('/dev/null')
-    os.setsid()
 
 def main(usage):
     parser = op.OptionParser(usage=usage, option_list=options())
     opts, args = parser.parse_args()
-    configure_log(opts)
 
     print(emcorn_log())
     if opts.debug:
@@ -42,8 +43,15 @@ def main(usage):
     log.info(f'worker count:{opts.workers}')
     app = import_app(args[0])
     if opts.daemon:
-        daemonize(log)
+        if opts.logfile == '-':
+            log_file = f'{opts.pidfile}.log'
+            log.info(f'emcorn is running background. more info at {log_file}')
+            opts.logfile = log_file
+        daemonize(opts)
     
+    configure_log(opts)
+    
+    log.info(f'opts: {opts}')
     Arbiter(
         (opts.host, opts.port), opts.workers, app,
         debug=opts.debug, pidfile=opts.pidfile
