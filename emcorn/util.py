@@ -7,7 +7,23 @@ CHUNK_SIZE = 4096
 MAX_BODY = 1024 * (80 + 32)
 
 def import_app(modname):
-    from demo.app import app
+    parts = modname.rsplit(':', 1)
+    if len(parts) == 1:
+        module, obj = modname, 'application'
+    else:
+        module, obj = parts[0], parts[1]
+    
+    
+    mod = __import__(module)
+    for p in module.split('.')[1:]:
+        if not hasattr(mod, p):
+            raise ImportError('Failed to import: %s' % modname)
+        mod = getattr(mod, p)
+
+    app = getattr(mod, obj)
+    if not callable(app):
+        raise TypeError('Application object must be callable.')
+
     return app
 
 def http_date():
