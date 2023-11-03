@@ -1,7 +1,7 @@
 import datetime
 import errno
 import select, socket
-import time
+import time, traceback
 
 CHUNK_SIZE = 4096
 MAX_BODY = 1024 * (80 + 32)
@@ -91,3 +91,6 @@ def close(sock):
 
 def normalize_name(name):
     return '-'.join([w.lower().capitalize() for w in name.split('-')])
+
+def call_stack():
+    return "\r\n".join(traceback.format_stack())

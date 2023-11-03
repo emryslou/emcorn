@@ -11,7 +11,7 @@ from emcorn.http._type import StringIO
 from emcorn.http.exceptions import RequestError
 from emcorn.http.parser import HttpParser
 from emcorn.http.tee import TeeInput
-from emcorn.util import CHUNK_SIZE, close, normalize_name, read_partial, write
+from emcorn.util import call_stack, CHUNK_SIZE, close, normalize_name, read_partial, write
 
 
 logger = emcorn.logging.log
@@ -61,9 +61,6 @@ class HttpRequest(object):
             if i != -1:
                 break
         
-        if not buf:
-            self.socket.close()
-        
         if self.parser._headers_dict.get('Except', '').lower() == '100-continue':
             self.write('100 Continue\n')
 
@@ -77,7 +74,6 @@ class HttpRequest(object):
         else:
             wsgi_input = TeeInput(self.socket, self.parser, buf[i:])
         
-        logger.debug(f'headers {self.parser._headers_dict}')
         environ = {
             "wsgi.url_scheme": 'http',
             "wsgi.input": wsgi_input,
@@ -130,4 +126,8 @@ class HttpRequest(object):
         write(self.socket, data)
     
     def close(self):
+        logger.info(
+                f'socket {self.socket!r} closed by '
+                f'{self.__class__.__name__}::close\nstacks:{call_stack()}'
+            )
         close(self.socket)

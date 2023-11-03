@@ -1,10 +1,14 @@
 import logging
 import optparse as op, os
+import resource
 import sys
 
 from emcorn.arbiter import Arbiter
 from emcorn.logging import log, configure as configure_log, add_handler
 from emcorn.util import import_app
+
+UMASK = 0
+MAXFD = 1024
 
 def options():
     return [
@@ -22,14 +26,22 @@ def daemonize(opts):
     if 'EMCORN_FD' in os.environ:
         return
 
-    if os.fork():
-        os._exit(0)
-    os.setsid()
-    if os.fork():
-        os._exit(0)
-    sys.stdin = sys.__stdin__ = open('/dev/null')
-    sys.stdout = sys.__stdout__ = open('/dev/null')
-    sys.stderr = sys.__stderr__ = open('/dev/null')
+    if os.fork() == 0:
+        os.setsid()
+        if os.fork() == 0:
+            os.umask(UMASK)
+        else:
+            os._exit(0)
+    else:
+       os._exit(0)
+    maxfd = resource.getrlimit(resource.RLIMIT_NOFILE)[1]
+    if maxfd == resource.RLIM_INFINITY:
+        maxfd = 1024
+    
+    redirect_to = os.devnull if hasattr(os, 'devnull') else '/dev/null'
+    os.open(redirect_to, os.O_RDWR)
+    os.dup2(0, 1)
+    os.dup2(0, 2)
 
 def main(usage):
     parser = op.OptionParser(usage=usage, option_list=options())

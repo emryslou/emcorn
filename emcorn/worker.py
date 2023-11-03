@@ -1,3 +1,4 @@
+from datetime import datetime
 import errno
 import fcntl
 import os
@@ -67,7 +68,8 @@ class Worker(object):
                     self._fchmod()
                     try:
                         conn, addr = self.sock.accept()
-                        self.handle(conn, addr)
+                        _start = datetime.now().timestamp()
+                        self.handle(conn, addr, _start)
                         nr += 1
                     except BlockingIOError:
                         break
@@ -101,14 +103,17 @@ class Worker(object):
     def quit(self):
         self.alive = False
     
-    def handle(self, conn, client):
+    def handle(self, conn, client, start_time):
         # fcntl.fcntl(conn.fileno(), fcntl.F_SETFD, fcntl.FD_CLOEXEC)
         self.close_on_exec(conn)
         try:
             req = http.HttpRequest(conn, client, self.address, self.debug)
             try:
                 res = self.app(req.read(), req.start_response)
-                http.HttpResponse(conn, res, req, self.debug).send()
+                log.info('request: %s %s' % (self.id, req.parser._headers_dict.get('Trace', start_time)))
+                res_handle = http.HttpResponse(conn, res, req, self.debug)
+                res_handle.headers['elpased'] = '%f %s'% ((datetime.now().timestamp() - start_time) * 1000, 'ms')
+                res_handle.send()
             except BaseException as e:
                 exc = ''.join([traceback.format_exc()])
                 msg = (
@@ -128,7 +133,6 @@ class Worker(object):
         except Exception as exc:
             try:
                 write_nonblock(conn, b'HTTP/1.1 500 Internal Server Error\r\n\r\n')
-                close(conn)
             except Exception as exc1:
                 pass
             log.error(f'{client}:request error {exc}')

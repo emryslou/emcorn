@@ -5,13 +5,15 @@ __all__ = [
     'log', 'configure'
 ]
 
-logging.basicConfig(level=logging.DEBUG, format='[%(asctime)s][%(levelname)s]:%(message)s')
+# logging.basicConfig(level=logging.DEBUG, format='[%(asctime)s][%(levelname)s]:%(message)s')
 log = logging.getLogger('emcorn')
 
 def configure(opts):
     handlers = []
     if opts.logfile != '-':
         handlers.append(logging.FileHandler(opts.logfile))
+    else:
+        handlers.append(logging.StreamHandler())
     
     _loglevel = 'info'
     if 'LOG_LEVEL' in os.environ:
