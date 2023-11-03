@@ -1,18 +1,13 @@
 import errno
 import fcntl
 import os
-import select
-import socket
-import signal
-import sys
-import tempfile
-import time
-import threading
+import select, socket, signal, sys
+import tempfile, time, threading, traceback
 
 from emcorn import http
 from emcorn.logging import log
 from emcorn.http.request import RequestError
-from emcorn.util import import_app, write_nonblock, close
+from emcorn.util import import_app, write_lines, write_nonblock, close
 
 class Worker(object):
     signals = map(
@@ -110,8 +105,25 @@ class Worker(object):
         self.close_on_exec(conn)
         try:
             req = http.HttpRequest(conn, client, self.address)
-            result = self.app(req.read(), req.start_response)
-            http.HttpResponse(conn, result, req).send()
+            try:
+                res = self.app(req.read(), req.start_response)
+                http.HttpResponse(conn, res, req).send()
+            except BaseException as e:
+                exc = ''.join([traceback.format_exc()])
+                msg = (
+                        '<h1>Internal Server Error</h1>'
+                        f'<h2>wsgi error: {e}</h2>'
+                        f'<pre>{exc}</pre>'
+                    )
+                write_lines(conn, [
+                    f'{req.parser.raw_version} 500 Internal Server Error',
+                    'Connection: close\r\n',
+                    'Content-Type: text/html\r\n',
+                    'Content-Length: %s\r\n' % (str(len(msg))),
+                    "\r\n",
+                    msg
+                ])
+                
         except Exception as exc:
             try:
                 write_nonblock(conn, b'HTTP/1.1 500 Internal Server Error\r\n\r\n')
@@ -120,7 +132,6 @@ class Worker(object):
                 log.error(f'What the f**king, sending server\'s error msg happens some error: {exc1}')
                 pass
             log.error(f'{client}:request error {exc}')
-            import traceback
             traceback.print_exc()
 
     def sig_handle_quit(self, sig, frame):

@@ -47,6 +47,10 @@ def write(sock, data):
             raise
         i += 1
 
+def write_lines(sock, lines_data):
+    for line in list(lines_data):
+        write(sock, line.encode())
+
 def write_nonblock(sock, data):
     while True:
         try:

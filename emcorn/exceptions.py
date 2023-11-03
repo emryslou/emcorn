@@ -1,0 +1,2 @@
+class EmCornException(Exception):
+    pass

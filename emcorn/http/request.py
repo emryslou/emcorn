@@ -6,6 +6,7 @@ from urllib.parse import unquote
 
 import emcorn
 
+from emcorn.exceptions import EmCornException
 from emcorn.http._type import StringIO
 from emcorn.http.exceptions import RequestError
 from emcorn.http.parser import HttpParser
@@ -105,7 +106,16 @@ class HttpRequest(object):
                 environ[key] = value
         return environ
     
-    def start_response(self, status, headers):
+    def start_response(self, status, headers, exc_info = None):
+        if exc_info:
+            try:
+                if self.start_response_called:
+                    raise exc_info[0](exc_info[1], exc_info[2])
+            finally:
+                exc_info = None
+        elif self.start_response_called:
+            raise EmCornException('start_response has been called')
+        
         self.response_status = int(status.split(" ")[0])
         self.response_headers = {}
 
