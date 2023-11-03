@@ -2,11 +2,12 @@ import errno
 import fcntl
 import os
 import select, signal, socket, sys
-import tempfile, threading, time
+import tempfile, threading, time, traceback
 
-
+from emcorn.exceptions import EmCornException
 from emcorn.logging import log
 from emcorn.worker import Worker
+from emcorn import util
 
 
 
@@ -40,6 +41,7 @@ class Arbiter(object):
 
         self.timeout = 30
         self.reexec_pid = 0
+        self._main_loop = time.time()
 
         self.init_signal()
         self.listen()
@@ -53,13 +55,14 @@ class Arbiter(object):
     def _set_pidfile(self, path):
         if not path:
             return
+        
         pid = self.valid_pidfile(path)
         cur_pid = os.getpid()
         if pid:
             if self.pidfile and path == self.pidfile and pid == cur_pid:
                 return path
 
-            raise RuntimeError(
+            raise EmCornException(
                     f'Already running on PID: {cur_pid}'
                     f'(or pid file {path!r} is stale)'
                 )
@@ -88,29 +91,35 @@ class Arbiter(object):
     def valid_pidfile(self, path):
         try:
             with open(path, 'r') as f:
-                pid = int(f.read() or 0)
+                try:
+                    pid = int(f.read())
+                except:
+                    return None
+                
                 if pid <= 0:
-                    return
+                    return None
                 try:
                     os.kill(pid, 0)
                     return pid
                 except OSError as e:
                     if e.errno == errno.ESRCH:
-                        return
-                    raise
+                        return None
+                    raise EmCornException(e)
         except IOError as e:
             if e.errno == errno.ENOENT:
-                return
-            raise
+                return None
+            raise EmCornException(e)
 
     def init_signal(self):
         if self.__pipe:
             [p.close() for p in self.__pipe]
         self.__pipe = pair = os.pipe()
 
-        [self.set_non_blocking(p) for p in pair]
-        [fcntl.fcntl(p, fcntl.F_SETFD, fcntl.FD_CLOEXEC) for p in pair]
+        [util.set_non_blocking(p) for p in pair]
+        [util.close_on_exec(p) for p in pair]
         [signal.signal(s, self.sig_handle) for s in self.signals]
+        signal.signal(signal.SIGALRM, self.sig_handler_alarm)
+        signal.alarm(1)
 
     def listen(self):
         if 'EMCORN_FD' in os.environ:
@@ -167,6 +176,7 @@ class Arbiter(object):
         max_raise_exc_retry = 10
         while self.alive:
             try:
+                self._main_loop = time.time()
                 self.reap_workers()
                 sig = self.__sig_queue.pop(0) if len(self.__sig_queue) else None
                 if sig is None:
@@ -197,6 +207,7 @@ class Arbiter(object):
                 self.alive = False
             
         #end while self.alive
+        log.info('Master is shutting down. before stop')
         self.stop()
         log.info('Master is shutting down.')
         if self.pidfile:
@@ -210,10 +221,11 @@ class Arbiter(object):
             sig = signal.SIGTERM
         
         limit = time.time() + self.timeout
-        while len(self.__workers) and time.time() < limit:
+        log.debug(f'stop {self.__workers}')
+        while self.__workers:
+            log.info('try stop workers ...')
             self.kill_workers(sig)
             time.sleep(0.1)
-            self.reap_workers()
         
         self.kill_workers(signal.SIGKILL)
 
@@ -236,29 +248,35 @@ class Arbiter(object):
 
             
     def fork_worker(self, worker_idx):
-        worker = Worker(worker_idx, self.pid, self.__listener, self.app, self.timeout / 2, self.debug)
+        worker = Worker(
+            worker_idx, self.pid, self.__listener, self.app,
+            self.__pipe, self.timeout / 2, self.debug
+        )
         pid = os.fork()
         if pid != 0:
             return pid, worker
         
+        exit_status = 0
         try:
             log.info(f'worker {worker_idx} start ...')
             worker.run()
-            sys.exit(0)
+            log.info(f'worker {worker_idx} done')
         except Exception as exc:
-            import traceback
-            log.error(f'exception in worker process {exc}')
-            traceback.print_exc(file=sys.stderr)
-            sys.exit(-1)
+            exc_stack = traceback.format_exc()
+            log.error(f'exception in worker process {exc}, stack:\n{exc_stack}')
+            exit_status = 127
         finally:
-            log.debug('worker exit ....')
+            log.debug(f'worker {worker.id} exit with {exit_status}')
+            os._exit(exit_status)
+
 
     def kill_worker(self, pid, sig):
         worker = self.__workers.get(pid, None)
         try:
             os.kill(pid, sig)
         finally:
-            if worker: worker.close()
+            if worker:
+                worker.close()
 
     def kill_workers(self, sig):
         for pid in self.__workers.keys():
@@ -270,11 +288,12 @@ class Arbiter(object):
             if not ready[0]:
                 return
             
-            while os.read(self.__pipe[0], 1):
+            while self.alive and os.read(self.__pipe[0], 1):
                 pass
         except (BlockingIOError, OSError) as exc:
             if exc.errno not in [errno.EAGAIN, errno.EINTR]:
                 raise
+            log.error(f'sleep error {exc}')
         except KeyboardInterrupt:
             self.alive = False
     
@@ -298,18 +317,26 @@ class Arbiter(object):
                 raise
         
     def sig_handle(self, sig, frame):
-        if len(self.__sig_queue) < 5:
-            self.__sig_queue.append(sig)
-            self.wakeup()
-        else:
-            log.warn('warnning: ignore rapid singaling: %s' % sig)
+        self.__sig_queue.append(sig)
+        self.wakeup()
+        if len(self.__sig_queue) >= 6:
+            log.error('main loop seems to be freezed. so killed forced')
+            os.kill(self.pid, signal.SIGKILL)
+        elif len(self.__sig_queue) >= 5:
+            log.warn('warnning: ignore rapid singaling: %s %s' % (sig, self.alive))
+        
     
+    def sig_handler_alarm(self, *args, **kwargs):
+        log.debug(f'sig_handle_alarm {len(self.__sig_queue)} {time.time()} {self._main_loop}')
+        if len(self.__sig_queue) >= 5 and time.time() - self._main_loop > 5:
+            log.error('main loop seems to be freezed. so killed forced')
+            os.kill(self.pid, signal.SIGKILL)
+
     def sig_handler_quit(self):
-        pass
+        self.sig_handler_term()
     
     def sig_handler_int(self):
-        self.alive = False
-        self.stop(False)
+        self.sig_handler_term()
     
     def sig_handler_term(self):
         self.alive = False
@@ -353,6 +380,7 @@ class Arbiter(object):
         try:
             while True:
                 wpid, status = os.waitpid(-1, os.WNOHANG)
+                log.debug(f'... reap_workers {wpid} {status}')
                 if not wpid:
                     break
                 if self.reexec_pid == wpid:
@@ -369,8 +397,4 @@ class Arbiter(object):
             if exc.errno == errno.ECHILD:
                 pass
             raise exc
-
-    def set_non_blocking(self, fd):
-        flags = fcntl.fcntl(fd, fcntl.F_GETFL) | os.O_NONBLOCK
-        fcntl.fcntl(fd, fcntl.F_SETFL, flags)
     

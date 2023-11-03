@@ -1,10 +1,15 @@
 import datetime
 import errno
+import fcntl
+import os
+import resource
 import select, socket
 import time, traceback
 
 CHUNK_SIZE = 4096
 MAX_BODY = 1024 * (80 + 32)
+MAXFD = 1024
+DAEMON_REDIRECT_TO = os.devnull if hasattr(os, 'devnull') else '/dev/null'
 
 def import_app(modname):
     parts = modname.rsplit(':', 1)
@@ -94,3 +99,18 @@ def normalize_name(name):
 
 def call_stack():
     return "\r\n".join(traceback.format_stack())
+
+def set_non_blocking(fd):
+    flags = fcntl.fcntl(fd, fcntl.F_GETFL) | os.O_NONBLOCK
+    fcntl.fcntl(fd, fcntl.F_SETFL, flags)
+
+def close_on_exec(fd):
+    flags = fcntl.fcntl(fd, fcntl.F_GETFD) | fcntl.FD_CLOEXEC
+    fcntl.fcntl(fd, fcntl.F_SETFL, flags)
+
+def get_maxfd():
+    maxfd = resource.getrlimit(resource.RLIMIT_NOFILE)[1]
+    if maxfd == resource.RLIM_INFINITY:
+        maxfd = MAXFD
+    
+    return maxfd

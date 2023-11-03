@@ -5,7 +5,7 @@ import sys
 
 from emcorn.arbiter import Arbiter
 from emcorn.logging import log, configure as configure_log, add_handler
-from emcorn.util import import_app
+from emcorn import util
 
 UMASK = 0
 MAXFD = 1024
@@ -34,12 +34,14 @@ def daemonize(opts):
             os._exit(0)
     else:
        os._exit(0)
-    maxfd = resource.getrlimit(resource.RLIMIT_NOFILE)[1]
-    if maxfd == resource.RLIM_INFINITY:
-        maxfd = 1024
     
-    redirect_to = os.devnull if hasattr(os, 'devnull') else '/dev/null'
-    os.open(redirect_to, os.O_RDWR)
+    for fd in range(0, util.get_maxfd()):
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+
+    os.open(util.DAEMON_REDIRECT_TO, os.O_RDWR)
     os.dup2(0, 1)
     os.dup2(0, 2)
 
@@ -53,7 +55,8 @@ def main(usage):
             log.info('debug mode, workers will be setted value 1')
         opts.workers = 1
     log.info(f'worker count:{opts.workers}')
-    app = import_app(args[0])
+
+    app = util.import_app(args[0])
     if opts.daemon:
         if opts.logfile == '-':
             log_file = f'{opts.pidfile}.log'
@@ -63,7 +66,6 @@ def main(usage):
     
     configure_log(opts)
     
-    log.info(f'opts: {opts}')
     Arbiter(
         (opts.host, opts.port), opts.workers, app,
         debug=opts.debug, pidfile=opts.pidfile
