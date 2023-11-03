@@ -319,15 +319,12 @@ class Arbiter(object):
     def sig_handle(self, sig, frame):
         self.__sig_queue.append(sig)
         self.wakeup()
-        if len(self.__sig_queue) >= 6:
-            log.error('main loop seems to be freezed. so killed forced')
-            os.kill(self.pid, signal.SIGKILL)
-        elif len(self.__sig_queue) >= 5:
+        if len(self.__sig_queue) >= 5:
             log.warn('warnning: ignore rapid singaling: %s %s' % (sig, self.alive))
         
     
     def sig_handler_alarm(self, *args, **kwargs):
-        log.debug(f'sig_handle_alarm {len(self.__sig_queue)} {time.time()} {self._main_loop}')
+        signal.alarm(1)
         if len(self.__sig_queue) >= 5 and time.time() - self._main_loop > 5:
             log.error('main loop seems to be freezed. so killed forced')
             os.kill(self.pid, signal.SIGKILL)
