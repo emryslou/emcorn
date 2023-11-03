@@ -74,6 +74,9 @@ class Arbiter(object):
                     log.error('Retrying in 1 second.')
                 
                 time.sleep(1)
+        
+        if self.__listener:
+            log.info('Listen on %s:%s' % self.__listener.getsockname())
     
     def init_socket(self, fd = None):
         if fd is None:

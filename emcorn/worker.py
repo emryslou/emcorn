@@ -130,7 +130,6 @@ class Worker(object):
                 write_nonblock(conn, b'HTTP/1.1 500 Internal Server Error\r\n\r\n')
                 close(conn)
             except Exception as exc1:
-                log.error(f'What the f**king, sending server\'s error msg happens some error: {exc1}')
                 pass
             log.error(f'{client}:request error {exc}')
             traceback.print_exc()

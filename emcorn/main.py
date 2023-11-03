@@ -22,13 +22,10 @@ def main(usage):
     configure_log(opts)
 
     print(emcorn_log())
-    log.info(f'listening: {opts.host}:{opts.port}')
-
     if opts.debug:
         if opts.workers > 1:
             log.info('debug mode, workers will be setted value 1')
         opts.workers = 1
-
     log.info(f'worker count:{opts.workers}')
 
     app = import_app(args[0])

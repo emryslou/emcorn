@@ -68,17 +68,14 @@ def write_lines(sock, lines_data):
         write(sock, line.encode())
 
 def write_nonblock(sock, data):
-    while True:
-        try:
-            ret = select.select([], [sock.fileno()], [], 2.0)
-            if ret[1]:
-                break
-        except socket.error as err:
-            if err.errno == errno.EINTR:
-                continue
-            raise err
-    
-    write(sock, data)
+    timeout = sock.gettimeout()
+    if timeout != '0.0':
+        sock.setblocking(False)
+        ret = write(sock, data)
+        sock.setblocking(True)
+        return
+
+    return write(sock, data)
 
 def close(sock):
     try:
