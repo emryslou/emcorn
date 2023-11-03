@@ -16,12 +16,12 @@ def http_date():
 def read_partial(sock, length):
     while True:
         try:
-            ret = select.select([sock.fileno()], [], [], 2.0)
+            ret = select.select([sock.fileno()], [], [], 0)
             if ret[0]:
                 break
         except select.error as err:
             if err.errno == errno.EINTR:
-                break
+                continue
             raise err
     data = sock.recv(length)
 

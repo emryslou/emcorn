@@ -112,12 +112,15 @@ class TeeInput(object):
                 self.tmp.write(chunk)
                 self.tmp.seek(0, os.SEEK_END)
                 return chunk
+            if not data:
+                self.socket.close()
+                self.socket = None
         self._finalize()
         return ''
     
     def _finalize(self):
         if self.parser.body_eof():
-            if self.parser.is_chunked:
+            if self.parser.is_chunked and self.socket:
                 while not self.parser.trailing_header(self.buf):
                     data = read_partial(self.socket, CHUNK_SIZE)
                     if not data:
