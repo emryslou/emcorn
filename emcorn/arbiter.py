@@ -288,14 +288,14 @@ class Arbiter(object):
             if not ready[0]:
                 return
             
-            while self.alive and os.read(self.__pipe[0], 1):
+            while os.read(self.__pipe[0], 1):
                 pass
         except (BlockingIOError, OSError) as exc:
             if exc.errno not in [errno.EAGAIN, errno.EINTR]:
                 raise
             log.error(f'sleep error {exc}')
         except KeyboardInterrupt:
-            self.alive = False
+            pass
     
     def murder_workers(self):
         for pid, worker in self.__workers.items():
@@ -325,7 +325,7 @@ class Arbiter(object):
     
     def sig_handler_alarm(self, *args, **kwargs):
         signal.alarm(1)
-        if len(self.__sig_queue) >= 5 and time.time() - self._main_loop > 5:
+        if len(self.__sig_queue) >= 2 and time.time() - self._main_loop > 5:
             log.error('main loop seems to be freezed. so killed forced')
             os.kill(self.pid, signal.SIGKILL)
 

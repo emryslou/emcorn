@@ -102,7 +102,7 @@ class Worker(object):
     
     def handle(self, conn, client, start_time):
         # fcntl.fcntl(conn.fileno(), fcntl.F_SETFD, fcntl.FD_CLOEXEC)
-        self.close_on_exec(conn)
+        util.close_on_exec(conn)
         try:
             req = http.HttpRequest(conn, client, self.address, self.debug)
             try:
