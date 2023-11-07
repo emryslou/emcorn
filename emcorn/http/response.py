@@ -1,42 +1,46 @@
-import time
-
-from emcorn.logging import log
-from emcorn.util import http_date, write, close # , read_partial
-
+from logger import logger as log
 class HttpResponse(object):
-    def __init__(self, sock, data, req, debug=False):
-        self.socket = sock
-        self.data = data
-        self.req = req
-        self.debug = debug
+    def __init__(self, request):
+        self.request = request
+        self.response_status = 400
+        self.response_status_hint = 'Bad Request'
+        self.response_headers = {}
+        self.response_body = None
+        self.sended_headers = False
 
-        self.headers = self.req.response_headers or {}
-        self.status = req.response_status
-        self.SERVER_VERSION = req.SERVER_VERSION
+    def __call__(self, body):
+        self.response_body = body
+        self.send_status()
+        self.send_headers()
+        self.send_body()
+        self.send_finish()
     
-    def write(self, data):
-        write(self.socket, data)
+    def start_response(self, http_status: str, headers: list):
+        status, status_hint = http_status.split(' ', 2)
+        self.response_status = status
+        self.response_status_hint = status_hint
+
+        for header_name, header_value in headers:
+            self.response_headers[header_name] = header_value
     
-    def send(self):
-        res_headers = []
-        res_headers.append('%s %s\r\n' % (self.req.parser.raw_version, self.status))
-        res_headers.append('%s %s\r\n' % ('Server:', self.SERVER_VERSION))
-        res_headers.append('%s %s\r\n' % ('Date:', http_date()))
-        res_headers.append('%s %s\r\n' % ('Status:', str(self.status)))
-        res_headers.append('%s %s\r\n' % ('Connections:', 'close'))
-
-        for name, value in self.headers.items():
-            res_headers.append("%s: %s\r\n" % (name, value))
-        
-        header_body = "%s\r\n" % "".join(res_headers)
-        self.write(header_body.encode())
-
-        if self.req.parser.method == 'HEAD':
-            return
-        
-        for chunk in self.data:
-            self.write(chunk)
-        
-        close(self.socket)
-        if hasattr(self.data, 'close'):
-            self.data.close()
+    def send_status(self):
+        status = (
+            f'HTTP/1.1 {self.response_status} {self.response_status_hint}'
+            '\r\n'
+        )
+        self.request.send(status.encode())
+    
+    def send_headers(self):
+        for header_name, header_value in self.response_headers.items():
+            header = f'{header_name}: {header_value}\r\n'
+            self.request.send(header.encode())
+        self.request.send(b'\r\n')
+        self.sended_headers = True
+    
+    def send_body(self):
+        if self.response_body:
+            for chunk in self.response_body:
+                self.request.send(chunk)
+    
+    def send_finish(self):
+        self.request.send(b'\r\n\r\n')

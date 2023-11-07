@@ -1,133 +1,48 @@
-import ctypes
-import io
-import re
-import sys
+import socket
 from urllib.parse import unquote
-
-import emcorn
-
-from emcorn.exceptions import EmCornException
-from emcorn.http._type import StringIO
-from emcorn.http.exceptions import RequestError
-from emcorn.http.parser import HttpParser
-from emcorn.http.tee import TeeInput
-from emcorn.util import call_stack, CHUNK_SIZE, close, normalize_name, read_partial, write
-
-
-logger = emcorn.logging.log
-
-DEFAULT_ENVIRON = {
-    "wsgi.url_scheme": 'http',
-    "wsgi.input": StringIO(),
-    "wsgi.errors": sys.stderr,
-    "wsgi.version": (1, 0),
-    "wsgi.multithread": False,
-    "wsgi.multiprocess": True,
-    "wsgi.run_once": False,
-    "SCRIPT_NAME": "",
-    "SERVER_SOFTWARE": 'emcorn/%s' % emcorn.__version__,
-}
-
+from http.parser import HttpParser
+from logger import logger as log
 
 class HttpRequest(object):
+    def __init__(self, sock: socket.socket, request_time, client, server, debug: bool = False):
+        self.bufsize = 1024
+        self.__attr_cache = {}
+
+        self.sock: socket.socket = sock
+        self.request_time = request_time
+        self.client = client
+        self.server = server
+
+        self.parser = HttpParser(sock, debug)
+
+        self._environ = {}
+
+        self.buf = b''
     
-    SERVER_VERSION = 'emcorn/%s' % emcorn.__version__
-
-    def __init__(self, sock, client_address, server_address, debug=False):
-        self.socket = sock
-        self.client = client_address
-        self.server = server_address
-        self.debug = debug
-
-        self.response_status = None
-        self.response_headers = {}
-
-        self._version = 11
-        self.parser = HttpParser()
-        self.start_response_called = False
-
-    def read(self):
-        environ = {}
-        headers = []
-        remain = CHUNK_SIZE
-
-        buf = ''
-        while True:
-            data = read_partial(self.socket, CHUNK_SIZE)
-            if not data:
-                break
-            buf += data.decode()
-            i = self.parser.filter_headers(headers, buf)
-            if i != -1:
-                break
-        
-        if self.parser._headers_dict.get('Except', '').lower() == '100-continue':
-            self.write('100 Continue\n')
-
-        if '?' in self.parser.path:
-            path_info, query = self.parser.path.split('?', 1)
-        else:
-            path_info, query = self.parser.path, ''
-        
-        if not self.parser.content_length and not self.parser.is_chunked:
-            wsgi_input = StringIO()
-        else:
-            wsgi_input = TeeInput(self.socket, self.parser, buf[i:])
-        
-        environ = {
-            "wsgi.url_scheme": 'http',
-            "wsgi.input": wsgi_input,
-            "wsgi.errors": sys.stderr,
-            "wsgi.version": (1, 0),
-            "wsgi.multithread": False,
-            "wsgi.multiprocess": not self.debug,
-            "wsgi.run_once": False,
-            "SCRIPT_NAME": "",
-            "SERVER_SOFTWARE": self.SERVER_VERSION,
-            "REQUEST_METHOD": self.parser.method,
-            "PATH_INFO": unquote(self.parser.path),
-            "QUERY_STRING": self.parser.query_string,
-            "RAW_URI": self.parser.raw_path,
-            "CONTENT_TYPE": self.parser._headers_dict.get('Content-Type', ''),
-            "CONTENT_LENGTH": str(wsgi_input.len),
-            "REMOTE_ADDR": self.client[0],
-            "REMOTE_PORT": self.client[1],
-            "SERVER_NAME": self.server[0],
-            "SERVER_PORT": self.server[1],
-            "SERVER_PROTOCOL": self.parser.raw_version
-        }
-
-        for key, value in self.parser._headers:
-            key = 'HTTP_' + key.upper().replace('-', '_')
-            if key not in ('HTTP_CONTENT_TYPE', 'HTTP_CONTENT_LENGTH'):
-                environ[key] = value
-        return environ
+    def send(self, data: bytes):
+        self.sock.send(data)
     
-    def start_response(self, status, headers, exc_info = None):
-        if exc_info:
-            try:
-                if self.start_response_called:
-                    raise exc_info[0](exc_info[1], exc_info[2])
-            finally:
-                exc_info = None
-        elif self.start_response_called:
-            raise EmCornException('start_response has been called')
+    def environ(self):
+        if self._environ:
+            return self._environ
         
-        self.response_status = int(status.split(" ")[0])
-        self.response_headers = {}
+        self.parser.parse()
+        self._environ['REQUEST_METHOD'] = self.parser.method
+        self._environ['SCRIPT_NAME'] = ''
+        self._environ['PATH_INFO'] = unquote(self.parser.query)
+        self._environ['SERVER_PROTOCOL'] = 'HTTP/%s.%s' % (self.parser.version[0], self.parser.version[1])
+        self._environ['QUERY_STRING'] = '' if '?' not in self.parser.query else self.parser.query.split('?', 1)[1]
+        self._environ['REQUEST_TIME'] = self.request_time
+        for key, value in self.parser.headers:
+            key = 'HTTP_%s' % (key.upper().replace('-', '_'))
+            self._environ[key]  = value
+        return self._environ
 
-        for name, value in headers:
-            name = normalize_name(name)
-            self.response_headers[name] = value.strip()
-        
-        self.start_response_called = True
+    def keep_alive(self):
+        _keep_alive = self.__attr_cache.get('keep_alive', None)
+        if _keep_alive is not None:
+            return _keep_alive
 
-    def write(self, data):
-        write(self.socket, data)
-    
-    def close(self):
-        logger.info(
-                f'socket {self.socket!r} closed by '
-                f'{self.__class__.__name__}::close\nstacks:{call_stack()}'
-            )
-        close(self.socket)
+        _keep_alive = self.parser.headers_dict.get('Connection', '').lower() == 'keep-alive' 
+        self.__attr_cache['keep_alive'] = _keep_alive
+        return _keep_alive
